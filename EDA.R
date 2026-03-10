@@ -13,8 +13,10 @@ library(e1071)
 library(kableExtra)
 library(gt)
 library(modelsummary)
+library(patchwork)
 
-install.packages("ggplotify")
+
+install.packages("")
 
 # Dataset loading and investigation ---------------------------------------
 
@@ -218,7 +220,7 @@ co_missingness <- gg_miss_upset(framingham,
 co_missingness
 
 # Is missingness in glucose related to CHD?
-framingham |>
+chd_relation_to_glocuse_missingness <-  framingham |>
   mutate(glucose_missing = is.na(glucose)) |>
   group_by(glucose_missing, ten_year_chd) |>
   summarise(n = n(), .groups = "drop") |>
@@ -237,12 +239,73 @@ framingham |>
        x = NULL, y = "Proportion (%)", fill = "CHD") +
   theme_minimal(base_size = 13)
 
-
+chd_relation_to_glocuse_missingness
+ggsave("Figures/Glucose_missing_vs_observed_chd.png", plot = chd_relation_to_glocuse_missingness)
 
 chisq.test(table(framingham$ten_year_chd, is.na(framingham$glucose)))
 
 summary(glm(is.na(glucose) ~ ten_year_chd, 
             data = framingham, 
             family = binomial()))
+
+
+# ── continuous panel (your existing plot) ─────────────────────────────────
+p_continuous <- framingham |>
+  mutate(glucose_missing = factor(is.na(glucose),
+                                  levels = c(FALSE, TRUE),
+                                  labels = c("Observed", "Missing"))) |>
+  select(glucose_missing, age, sys_bp, bmi, tot_chol,
+         heart_rate, cigs_per_day, dia_bp) |>
+  pivot_longer(-glucose_missing) |>
+  group_by(glucose_missing, name) |>
+  summarise(mean = mean(value, na.rm = TRUE),
+            se   = sd(value,   na.rm = TRUE) / sqrt(n()),
+            .groups = "drop") |>
+  ggplot(aes(x = glucose_missing, y = mean,
+             color = glucose_missing, group = 1)) +
+  geom_pointrange(aes(ymin = mean - 1.96 * se,
+                      ymax = mean + 1.96 * se), size = 0.7) +
+  geom_line(color = "gray60", linetype = "dashed") +
+  facet_wrap(~name, scales = "free_y", ncol = 4) +
+  scale_color_manual(values = c("steelblue", "tomato")) +
+  labs(title    = "Continuous Covariate Profiles by Glucose Missingness",
+       x = NULL, y = "Mean ± 95% CI") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none")
+
+
+
+p_continuous
+
+ggsave("Figures/continous_covar_profiles_by_glucose_missingness.png", plot = p_continuous)
+
+
+p_categorical <- framingham |>
+  mutate(glucose_missing = factor(is.na(glucose),
+                                  levels = c(FALSE, TRUE),
+                                  labels = c("Observed", "Missing"))) |>
+  select(glucose_missing, all_of(binary_vars), education) |>
+  mutate(across(all_of(binary_vars), as.character),
+         education = as.character(education)) |>
+  pivot_longer(-glucose_missing) |>
+  group_by(glucose_missing, name, value) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(glucose_missing, name) |>
+  mutate(pct = n / sum(n) * 100) |>
+  ggplot(aes(x = value, y = pct, fill = glucose_missing)) +
+  geom_col(position = "dodge", alpha = 0.85) +
+  facet_wrap(~name, scales = "free_x", ncol = 4) +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(title = "Categorical Covariate Profiles by Glucose Missingness",
+       x = NULL, y = "Proportion (%)",
+       fill = "Glucose") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x  = element_text(angle = 30, hjust = 1),
+        legend.position = "bottom")
+
+
+p_categorical
+ggsave("Figures/categorical_covar_profiles_by_glucose_missingness.png", plot = p_categorical)
 
 
