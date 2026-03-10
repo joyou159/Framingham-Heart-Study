@@ -1,0 +1,10 @@
+Missingness analysis
+-----------------------
+1. CHD Rate: Glucose Missing vs Observed test
+    visually, the bar plots are very close -> heart disease does not predict missing glucose.
+    using chi-square testing, p = 0.2108, p > 0.05 -> not significant association
+    using logistic regression (glm), we got estimate: -0.209 with p-value: 0.186 > 0.05
+
+overall, we could say confidently that Glucose missingness is MCAR (w.r.t CHD)
+
+2. MAR (Missing At Random) diagnostics for continous and categorical covariates (To-Do)

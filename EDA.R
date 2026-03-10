@@ -14,7 +14,7 @@ library(kableExtra)
 library(gt)
 library(modelsummary)
 
-install.packages("")
+install.packages("ggplotify")
 
 # Dataset loading and investigation ---------------------------------------
 
@@ -160,4 +160,89 @@ p_chd_bar + p_chd_sex +
                   theme = theme(plot.title = element_text(face = "bold", size = 15)))
 
 ggsave("Figures/target_variable_overview.png")
+
+
+
+
+# Missing Data ------------------------------------------------------------
+
+
+# Missingness bar chart
+
+glucose_miss <- miss_var_summary(framingham) |>
+  filter(variable == "glucose") |>
+  mutate(pct_miss = as.numeric(pct_miss)) |>
+  pull(pct_miss) |>
+  round(1)
+
+p_miss_bar <- miss_var_summary(framingham) |>
+  filter(n_miss > 0) |>
+  mutate(
+    pct_miss = as.numeric(pct_miss),
+    variable = fct_reorder(variable, pct_miss)
+  ) |>
+  ggplot(aes(x = variable, y = pct_miss)) +
+  geom_col(fill = "tomato", alpha = 0.85) +
+  geom_text(aes(label = paste0(round(pct_miss, 1), "%\n(n=", n_miss, ")")),
+            hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, 12),
+                     labels = scales::percent_format(scale = 1)) +
+  labs(title    = "Missing Data by Variable",
+       subtitle = paste0("Glucose accounts for the majority of missingness (",
+                         glucose_miss, "%)"),
+       x = NULL, y = "% Missing") +
+  theme_minimal(base_size = 13)
+
+
+p_miss_bar
+
+ggsave("Figures/missing_proportions.png", plot = p_miss_bar)
+
+
+
+# missingness heatmap
+p_miss_heat <- vis_miss(framingham, sort_miss = TRUE) +
+  labs(title = "Missingness Pattern Across All Rows") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_miss_heat
+
+ggsave("Figures/missing_pattern.png", plot = p_miss_heat)
+
+
+# co-occurrence of missingness (Are the same rows missing multiple variables?)
+co_missingness <- gg_miss_upset(framingham,
+              nsets = 6,
+              nintersects = 15) 
+co_missingness
+
+# Is missingness in glucose related to CHD?
+framingham |>
+  mutate(glucose_missing = is.na(glucose)) |>
+  group_by(glucose_missing, ten_year_chd) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(glucose_missing) |>
+  mutate(pct = n / sum(n) * 100) |>
+  ggplot(aes(x = glucose_missing, y = pct, fill = ten_year_chd)) +
+  geom_col(position = "stack", alpha = 0.9) +
+  geom_text(aes(label = paste0(round(pct, 1), "%")),
+            position = position_stack(vjust = 0.5),
+            color = "white", fontface = "bold", size = 4) +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  scale_x_discrete(labels = c("FALSE" = "Glucose Observed",
+                              "TRUE"  = "Glucose Missing")) +
+  labs(title    = "CHD Rate: Glucose Missing vs Observed",
+       subtitle = "Missing Completely at Random? (W.r.t CHD)",
+       x = NULL, y = "Proportion (%)", fill = "CHD") +
+  theme_minimal(base_size = 13)
+
+
+
+chisq.test(table(framingham$ten_year_chd, is.na(framingham$glucose)))
+
+summary(glm(is.na(glucose) ~ ten_year_chd, 
+            data = framingham, 
+            family = binomial()))
+
 
