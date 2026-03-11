@@ -144,7 +144,7 @@ ggsave("Figures/target_variable_overview.png", plot = p_chd_bar)
 framingham |>
   select(all_of(continuous_vars)) |>
   pivot_longer(everything(), names_to = "variable", values_to = "value") |>
-  drop_na(value) |>                                    # ← explicit NA removal
+  drop_na(value) |>                                   
   mutate(variable = factor(variable,
                            levels = continuous_vars,
                            labels = c("Age (years)", "Cigarettes/Day",
@@ -169,7 +169,7 @@ ggsave("Figures/Distributions_of_Continuous_var.png")
 framingham |>
   select(all_of(continuous_vars)) |>
   pivot_longer(everything(), names_to = "variable", values_to = "value") |>
-  drop_na(value) |>  # remove rows where the plotted value is NA
+  drop_na(value) |
   mutate(
     variable = factor(
       variable,
@@ -223,7 +223,7 @@ cat_plot_data <- framingham |>
   select(all_of(binary_vars), education) |>
   mutate(across(everything(), as.character)) |>
   pivot_longer(everything(), names_to = "variable", values_to = "value") |>
-  drop_na(value) |>  # ← remove NA categories here
+  drop_na(value) |>
   count(variable, value) |>
   group_by(variable) |>
   mutate(
@@ -256,9 +256,84 @@ ggplot(cat_plot_data,
 ggsave("Figures/Categorical_distribution.png")
 
 
+# Bivariate investigation -------------------------------------------------
+
+# continuous variables
+framingham |>
+  select(all_of(continuous_vars), ten_year_chd) |>
+  pivot_longer(-ten_year_chd, names_to = "variable", values_to = "value") |>
+  mutate(variable = factor(variable,
+                           levels = continuous_vars,
+                           labels = c("Age", "Cigarettes/Day", "Total Chol.",
+                                      "Systolic BP", "Diastolic BP",
+                                      "BMI", "Heart Rate", "Glucose"))) |>
+  ggplot(aes(x = value, fill = ten_year_chd, color = ten_year_chd)) +
+  geom_density(alpha = 0.35, linewidth = 0.8) +
+  scale_fill_manual(values  = c("steelblue", "tomato")) +
+  scale_color_manual(values = c("steelblue", "tomato")) +
+  facet_wrap(~variable, scales = "free", ncol = 4) +
+  labs(title    = "Continuous Predictors by CHD Status",
+       x = NULL, y = "Density",
+       fill = "10-yr CHD", color = "10-yr CHD") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+ggsave("Figures/continous_predictors_by_CHD.png")
+
+
+# Age and systolic BP show strongest association
+framingham |>
+  mutate(chd_num = as.integer(ten_year_chd) - 1) |>
+  select(all_of(continuous_vars), chd_num) |>
+  summarise(across(all_of(continuous_vars),
+                   ~cor(., chd_num, use = "pairwise.complete.obs"))) |>
+  pivot_longer(everything(),
+               names_to  = "variable",
+               values_to = "r") |>
+  mutate(
+    variable = fct_reorder(variable, abs(r)),
+    dir      = ifelse(r > 0, "Positive", "Negative")
+  ) |>
+  ggplot(aes(x = variable, y = r, fill = dir)) +
+  geom_col(alpha = 0.85) +
+  geom_hline(yintercept = 0, linewidth = 0.7) +
+  coord_flip() +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  labs(title    = "Point-Biserial Correlation with 10-Year CHD",
+       x = NULL, y = "Pearson r with CHD", fill = "Direction") +
+  theme_minimal(base_size = 13)
+
+ggsave("Figures/continous_predictors_by_CHD_pearson_r.png")
 
 
 
+# categorical variables
+framingham |>
+  select(all_of(binary_vars), education, ten_year_chd) |>
+  mutate(across(c(all_of(binary_vars), education), as.character)) |>
+  pivot_longer(-ten_year_chd) |>
+  drop_na(value) |>                                                   
+  mutate(name = recode(name,
+                       "male"             = "Sex",
+                       "current_smoker"   = "Current Smoker",
+                       "bp_meds"          = "BP Medication",
+                       "prevalent_stroke" = "Prevalent Stroke",
+                       "prevalent_hyp"    = "Hypertension",
+                       "diabetes"         = "Diabetes",
+                       "education"        = "Education Level"
+  )) |>
+  ggplot(aes(x = value, fill = ten_year_chd)) +
+  geom_bar(position = "fill", alpha = 0.9) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  facet_wrap(~name, scales = "free_x", ncol = 4) +
+  labs(title = "CHD Proportion by Categorical Predictors",
+       x = NULL, y = "Proportion", fill = "10-yr CHD") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "bottom")
+
+ggsave("Figures/categorical_predictors_by_CHD_proportion.png")
 
 
 
