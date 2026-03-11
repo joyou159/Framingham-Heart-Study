@@ -306,7 +306,6 @@ framingham |>
 ggsave("Figures/continous_predictors_by_CHD_pearson_r.png")
 
 
-
 # categorical variables
 framingham |>
   select(all_of(binary_vars), education, ten_year_chd) |>
@@ -336,11 +335,7 @@ framingham |>
 ggsave("Figures/categorical_predictors_by_CHD_proportion.png")
 
 
-
-
-
-
-# Missing Data ------------------------------------------------------------
+# Missing Data (specifically in glucose) ------------------------------------------------------------
 
 # Missingness bar chart
 
@@ -373,7 +368,6 @@ p_miss_bar <- miss_var_summary(framingham) |>
 p_miss_bar
 
 ggsave("Figures/missing_proportions.png", plot = p_miss_bar)
-
 
 
 # missingness heatmap
@@ -422,7 +416,6 @@ summary(glm(is.na(glucose) ~ ten_year_chd,
             family = binomial()))
 
 
-# ── continuous panel (your existing plot) ─────────────────────────────────
 p_continuous <- framingham |>
   mutate(glucose_missing = factor(is.na(glucose),
                                   levels = c(FALSE, TRUE),
@@ -452,8 +445,6 @@ p_continuous
 
 ggsave("Figures/continous_covar_profiles_by_glucose_missingness.png", plot = p_continuous)
 
-
-
 p_categorical <- framingham |>
   mutate(glucose_missing = factor(is.na(glucose),
                                   levels = c(FALSE, TRUE),
@@ -482,4 +473,126 @@ p_categorical
 
 
 ggsave("Figures/categorical_covar_profiles_by_glucose_missingness.png", plot = p_categorical)
+
+
+
+# MAR assessment! ---------------------------------------------------------
+
+
+
+# Little's MCAR Test (global)
+# Tests whether data is MCAR across all variables simultaneously
+# H0: data is MCAR — p < 0.05 suggests NOT MCAR (i.e., MAR or MNAR)
+
+
+framingham_numeric <- framingham |>
+  mutate(
+    sex            = as.integer(sex),
+    current_smoker = as.integer(current_smoker),
+    bp_meds        = as.integer(bp_meds),
+    prevalent_stroke = as.integer(prevalent_stroke),
+    prevalent_hyp  = as.integer(prevalent_hyp),
+    diabetes       = as.integer(diabetes),
+    education      = as.integer(education),
+    ten_year_chd   = as.integer(ten_year_chd)
+  )
+
+
+little_test <- mcar_test(framingham_numeric)
+little_test # p-value < 0.05, reject MCAR, the missingness has a systematic 
+# pattern related to observed data → MAR or MNAR
+
+
+
+missing_vars <- c("glucose", "education", "bp_meds", 
+                  "tot_chol", "cigs_per_day", "bmi", "heart_rate")
+
+mar_results <- map(missing_vars, function(var) {
+  
+  d <- framingham |>
+    mutate(
+      miss_indicator = as.integer(is.na(.data[[var]])),
+      education_num  = as.integer(education),
+      sex_num        = as.integer(sex),
+      smoker_num     = as.integer(current_smoker),
+      bp_meds_num    = as.integer(bp_meds),
+      stroke_num     = as.integer(prevalent_stroke),
+      hyp_num        = as.integer(prevalent_hyp),
+      diabetes_num   = as.integer(diabetes),
+      chd_num        = as.integer(ten_year_chd)
+    )
+  
+  # Only test predictors that aren't the variable itself
+  predictors <- c("age", "sys_bp", "dia_bp", "bmi", "heart_rate",
+                  "tot_chol", "cigs_per_day", "glucose",
+                  "sex_num", "smoker_num", "bp_meds_num",
+                  "stroke_num", "hyp_num", "diabetes_num",
+                  "education_num", "chd_num") |>
+    setdiff(c(var, paste0(var, "_num")))
+  
+  formula_str <- paste("miss_indicator ~", paste(predictors, collapse = " + "))
+  
+  fit <- glm(as.formula(formula_str), data = d, family = binomial())
+  
+  tidy_fit <- broom::tidy(fit) |>
+    filter(term != "(Intercept)", p.value < 0.05) |>
+    arrange(p.value)
+  
+  list(variable = var, significant_predictors = tidy_fit)
+})
+
+
+# Print results
+walk(mar_results, function(res) {
+  cat("\n────────────────────────────────\n")
+  cat("Missingness in:", res$variable, "\n")
+  if (nrow(res$significant_predictors) == 0) {
+    cat("  → No significant predictors found (consistent with MCAR)\n")
+  } else {
+    cat("  → Missingness predicted by (p < 0.05):\n")
+    print(res$significant_predictors |> select(term, estimate, p.value))
+    cat("  → Interpretation: MAR — safe for MICE\n")
+  }
+})
+
+
+
+mar_plot_data <- map_dfr(mar_results, function(res) {
+  if (nrow(res$significant_predictors) == 0) {
+    tibble(missing_var = res$variable, 
+           n_sig_predictors = 0, 
+           verdict = "MCAR (no predictors)")
+  } else {
+    tibble(missing_var = res$variable,
+           n_sig_predictors = nrow(res$significant_predictors),
+           verdict = "MAR (predictors found)")
+  }
+})
+
+ggplot(mar_plot_data, 
+       aes(x = fct_reorder(missing_var, n_sig_predictors), 
+           y = n_sig_predictors, fill = verdict)) +
+  geom_col(alpha = 0.85) +
+  geom_text(aes(label = n_sig_predictors), hjust = -0.3, size = 4) +
+  coord_flip() +
+  scale_fill_manual(values = c("MAR (predictors found)" = "tomato")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(title    = "MAR Assessment: Significant Predictors of Missingness",
+       subtitle = "Count of covariates (p < 0.05) that predict each variable's missingness",
+       x = NULL, y = "# Significant Predictors", fill = NULL) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom")
+
+ggsave("Figures/MAR_assessment.png")
+
+
+
+
+
+
+
+
+
+
+
 
