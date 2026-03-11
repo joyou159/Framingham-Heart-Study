@@ -30,7 +30,7 @@ glimpse(df)
 
 map(df, function(x) length(unique(x)))
 
-binary_vars <- c("male", "current_smoker", "bp_meds",
+binary_vars <- c("sex", "current_smoker", "bp_meds",
                      "prevalent_stroke", "prevalent_hyp", "diabetes")
 
 ordinal_vars <- c("education")
@@ -61,7 +61,8 @@ framingham <- df |>
                        ordered = TRUE),
     
     ten_year_chd = factor(ten_year_chd, labels = c("No", "Yes"))
-  )
+  ) |> 
+  rename(sex = male)
 
 
 glimpse(framingham)
@@ -111,9 +112,9 @@ cat_summary |>
   gt::opt_stylize(style = 6, color = "blue") |>
   gt::gtsave("Figures/table_categorical.png")
 
-# Target Variable Analysis ---------------------------------------
+# variables Analysis ---------------------------------------
 
-# Class imbalance
+# target variable analysis
 
 chd_summary <- framingham |>
   count(ten_year_chd) |>
@@ -135,39 +136,136 @@ p_chd_bar <- ggplot(chd_summary,
 
 p_chd_bar
 
-# CHD rate by sex
+ggsave("Figures/target_variable_overview.png", plot = p_chd_bar)
 
-p_chd_sex <- framingham |>
-  group_by(male, ten_year_chd) |>
-  summarise(n = n(), .groups = "drop") |>
-  group_by(male) |>
-  mutate(pct = n / sum(n) * 100) |>
-  filter(ten_year_chd == "Yes") |>
-  ggplot(aes(x = male, y = pct, fill = male)) +
-  geom_col(width = 0.5, alpha = 0.9) +
+
+# Continuous Variables 
+
+framingham |>
+  select(all_of(continuous_vars)) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "value") |>
+  drop_na(value) |>                                    # ← explicit NA removal
+  mutate(variable = factor(variable,
+                           levels = continuous_vars,
+                           labels = c("Age (years)", "Cigarettes/Day",
+                                      "Total Cholesterol", "Systolic BP",
+                                      "Diastolic BP", "BMI",
+                                      "Heart Rate", "Glucose"))) |>
+  ggplot(aes(x = value)) +
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 35, fill = "steelblue",
+                 color = "white", alpha = 0.75) +
+  geom_density(color = "darkred", linewidth = 0.9) +
+  facet_wrap(~variable, scales = "free", ncol = 4) +
+  labs(title    = "Distributions of Continuous Predictors",
+       subtitle = "Histogram with kernel density overlay",
+       x = NULL, y = "Density") +
+  theme_minimal(base_size = 11)
+
+
+ggsave("Figures/Distributions_of_Continuous_var.png")
+
+
+framingham |>
+  select(all_of(continuous_vars)) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "value") |>
+  drop_na(value) |>  # remove rows where the plotted value is NA
+  mutate(
+    variable = factor(
+      variable,
+      levels = continuous_vars,
+      labels = c("Age", "Cigarettes/Day", "Total Chol.",
+                 "Systolic BP", "Diastolic BP",
+                 "BMI", "Heart Rate", "Glucose")
+    )
+  ) |>
+  ggplot(aes(x = "", y = value)) +
+  geom_jitter(width = 0.2, alpha = 0.07, color = "steelblue", size = 0.5, na.rm = TRUE) +
+  geom_boxplot(alpha = 0.5, fill = "lightyellow",
+               outlier.shape = NA, linewidth = 0.7, na.rm = TRUE) +
+  stat_summary(fun = \(x) mean(x, na.rm = TRUE),
+               geom = "point", shape = 18, size = 3, color = "darkred", na.rm = TRUE) +
+  facet_wrap(~variable, scales = "free_y", ncol = 4) +
+  labs(title    = "Boxplots of Continuous Predictors",
+       subtitle = "Red diamond = mean; jittered points show raw data",
+       x = NULL, y = NULL) +
+  theme_minimal(base_size = 11)
+
+ggsave("Figures/Boxplots_of_continuous_vars.png")
+
+
+skew_df <- framingham |>
+  select(all_of(continuous_vars)) |>
+  summarise(across(everything(), ~skewness(., na.rm = TRUE))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "skewness") |>
+  mutate(
+    direction = ifelse(skewness > 0, "Right-skewed", "Left-skewed"),
+    variable  = fct_reorder(variable, skewness)
+  )
+
+ggplot(skew_df, aes(x = variable, y = skewness, fill = direction)) +
+  geom_col(alpha = 0.85) +
+  geom_hline(yintercept = c(-1, 1), linetype = "dashed",
+             color = "gray40", linewidth = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.8) +
+  coord_flip() +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  labs(title    = "Skewness of Continuous Predictors",
+       subtitle = "Dashed lines at ±1 — beyond this, transformation may help",
+       x = NULL, y = "Skewness", fill = NULL) +
+  theme_minimal(base_size = 13)
+
+ggsave("Figures/skewness_plot.png")
+
+# All binary/categorical vars in one panel
+
+cat_plot_data <- framingham |>
+  select(all_of(binary_vars), education) |>
+  mutate(across(everything(), as.character)) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "value") |>
+  drop_na(value) |>  # ← remove NA categories here
+  count(variable, value) |>
+  group_by(variable) |>
+  mutate(
+    pct = n / sum(n) * 100,
+    variable = recode(variable,
+                      "male"             = "Sex",
+                      "current_smoker"   = "Current Smoker",
+                      "bp_meds"          = "BP Medication",
+                      "prevalent_stroke" = "Prevalent Stroke",
+                      "prevalent_hyp"    = "Hypertension",
+                      "diabetes"         = "Diabetes",
+                      "education"        = "Education Level"
+    )
+  )
+
+ggplot(cat_plot_data,
+       aes(x = value, y = pct, fill = value)) +
+  geom_col(alpha = 0.85) +
   geom_text(aes(label = paste0(round(pct, 1), "%")),
-            vjust = -0.4, fontface = "bold", size = 4) +
-  scale_fill_manual(values = c("orchid3", "steelblue")) +
-  scale_y_continuous(limits = c(0, 25),
-                     labels = scales::percent_format(scale = 1)) +
-  labs(title = "CHD Rate by Sex",
-       x = NULL, y = "% with CHD") +
-  theme_minimal(base_size = 13) +
-  theme(legend.position = "none")
+            vjust = -0.4, size = 3.2) +
+  facet_wrap(~variable, scales = "free_x", ncol = 4) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1),
+                     expand  = expansion(mult = c(0, 0.15))) +
+  labs(title    = "Categorical Predictor Distributions",
+       x = NULL, y = "Percentage") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none",
+        axis.text.x     = element_text(angle = 30, hjust = 1))
 
-p_chd_sex
+ggsave("Figures/Categorical_distribution.png")
 
-p_chd_bar + p_chd_sex +
-  plot_annotation(title = "Target Variable Overview",
-                  theme = theme(plot.title = element_text(face = "bold", size = 15)))
 
-ggsave("Figures/target_variable_overview.png")
+
+
+
+
+
 
 
 
 
 # Missing Data ------------------------------------------------------------
-
 
 # Missingness bar chart
 
@@ -280,6 +378,7 @@ p_continuous
 ggsave("Figures/continous_covar_profiles_by_glucose_missingness.png", plot = p_continuous)
 
 
+
 p_categorical <- framingham |>
   mutate(glucose_missing = factor(is.na(glucose),
                                   levels = c(FALSE, TRUE),
@@ -287,7 +386,7 @@ p_categorical <- framingham |>
   select(glucose_missing, all_of(binary_vars), education) |>
   mutate(across(all_of(binary_vars), as.character),
          education = as.character(education)) |>
-  pivot_longer(-glucose_missing) |>
+  pivot_longer(-glucose_missing, values_drop_na = TRUE) |>  # ← drop NA values
   group_by(glucose_missing, name, value) |>
   summarise(n = n(), .groups = "drop") |>
   group_by(glucose_missing, name) |>
@@ -304,8 +403,8 @@ p_categorical <- framingham |>
   theme(axis.text.x  = element_text(angle = 30, hjust = 1),
         legend.position = "bottom")
 
-
 p_categorical
-ggsave("Figures/categorical_covar_profiles_by_glucose_missingness.png", plot = p_categorical)
 
+
+ggsave("Figures/categorical_covar_profiles_by_glucose_missingness.png", plot = p_categorical)
 
