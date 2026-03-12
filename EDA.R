@@ -818,3 +818,44 @@ datasummary_skim(
 )
 
 
+
+framingham_model <- framingham_complete |>
+  
+  mutate(
+    glucose      = pmin(glucose,      quantile(glucose,      0.99)),
+    tot_chol     = pmin(tot_chol,     quantile(tot_chol,     0.99)),
+    sys_bp       = pmin(sys_bp,       quantile(sys_bp,       0.99)),
+    bmi          = pmin(bmi,          quantile(bmi,          0.99)),
+    cigs_per_day = pmin(cigs_per_day, quantile(cigs_per_day, 0.99)),
+    heart_rate   = pmin(heart_rate,   quantile(heart_rate,   0.99)),
+    dia_bp       = pmin(dia_bp,       quantile(dia_bp,       0.99))
+  )
+
+
+vars_capped <- c("glucose", "sys_bp", "tot_chol", 
+                 "cigs_per_day", "bmi", "heart_rate", "dia_bp")
+
+before <- framingham_complete |>
+  select(all_of(vars_capped)) |>
+  mutate(stage = "Before")
+
+after <- framingham_model |>
+  select(all_of(vars_capped)) |>
+  mutate(stage = "After")
+
+bind_rows(before, after) |>
+  pivot_longer(-stage, names_to = "variable", values_to = "value") |>
+  mutate(stage = factor(stage, levels = c("Before", "After"))) |>
+  ggplot(aes(x = stage, y = value, fill = stage)) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.3) +
+  scale_fill_manual(values = c("Before" = "tomato", "After" = "steelblue")) +
+  facet_wrap(~variable, scales = "free_y", ncol = 4) +   # ← ncol=4 for 7 vars
+  labs(title    = "Winsorization Effect: Before vs After",
+       subtitle = "Capped at 99th percentile for all 7 flagged variables",
+       x = NULL, y = NULL, fill = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+
+ggsave("Figures/winsorization_before_after.png", width = 10, height = 8)
+
+
