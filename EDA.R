@@ -12,9 +12,12 @@ library(janitor)        # clean column names
 library(e1071)
 library(kableExtra)
 library(gt)
+library(car)
 library(modelsummary)
 library(patchwork)
 library(ggcorrplot)
+library(recipes)
+library(rsample)
 
 
 install.packages("")
@@ -859,3 +862,177 @@ bind_rows(before, after) |>
 ggsave("Figures/winsorization_before_after.png", width = 10, height = 8)
 
 
+
+
+# Features Engineering  ---------------------------------------------------
+
+skew_before <- framingham_model |>
+  select(glucose, tot_chol, sys_bp, bmi) |>
+  summarise(across(everything(), ~round(skewness(., na.rm = TRUE), 2))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "skew_before")
+
+# we will skip the log-transformation to make things interpretable (skewness is acceptable)
+skew_before
+
+
+# the variance inflation factor of the vars
+vif_model <- glm(
+  ten_year_chd ~ age + cigs_per_day + tot_chol + sys_bp + dia_bp +
+    bmi + heart_rate + glucose +
+    sex + current_smoker + bp_meds +
+    prevalent_stroke + prevalent_hyp + diabetes + education,
+  data   = framingham_model |>
+    mutate(across(where(is.factor), ~as.integer(.) - 1L)),
+  family = binomial()
+)
+
+vif_results <- vif(vif_model) |>
+  as.data.frame() |>
+  rownames_to_column("variable") |>
+  rename(VIF = 2) |>
+  mutate(
+    verdict  = case_when(
+      VIF < 5  ~ "OK",
+      VIF < 10 ~ "Concerning",
+      TRUE     ~ "Serious"
+    ),
+    variable = fct_reorder(variable, VIF)
+  )
+
+vif_results
+
+ggplot(vif_results, aes(x = variable, y = VIF, fill = verdict)) +
+  geom_col(alpha = 0.85) +
+  geom_hline(yintercept = 5,  linetype = "dashed", 
+             color = "orange", linewidth = 0.8) +
+  geom_hline(yintercept = 10, linetype = "dashed", 
+             color = "red", linewidth = 0.8) +
+  geom_text(aes(label = round(VIF, 2)), hjust = -0.2, size = 4) +
+  coord_flip() +
+  scale_fill_manual(values = c("OK"         = "steelblue",
+                               "Concerning" = "orange",
+                               "Serious"    = "tomato")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(title    = "Variance Inflation Factor — Before Feature Engineering",
+       subtitle = "Dashed lines at 5 (concerning) and 10 (serious)",
+       x = NULL, y = "VIF", fill = NULL) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom")
+
+ggsave("Figures/vif_before.png", width = 10, height = 7)
+
+
+
+# combining sys_bp and dia_bp to get pulse pressure
+framingham_model_new <- framingham_model |>
+  mutate(
+    pulse_pressure = sys_bp - dia_bp
+  ) |>
+  select(-sys_bp, -dia_bp)   # drop both originals
+
+framingham_model_new |>
+  summarise(
+    min_pp  = min(pulse_pressure),
+    max_pp  = max(pulse_pressure),
+    mean_pp = round(mean(pulse_pressure), 2)
+  )
+
+framingham_model_new |>
+  ggplot(aes(x = pulse_pressure, fill = ten_year_chd,
+             color = ten_year_chd)) +
+  geom_density(alpha = 0.35, linewidth = 0.9) +
+  scale_fill_manual(values  = c("steelblue", "tomato")) +
+  scale_color_manual(values = c("steelblue", "tomato")) +
+  labs(title    = "Pulse Pressure Distribution by CHD Status",
+       subtitle = "Higher pulse pressure expected in CHD positive group",
+       x = "Pulse Pressure (mmHg)", y = "Density",
+       fill = "10-yr CHD", color = "10-yr CHD") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom")
+
+ggsave("Figures/pulse_pressure_by_CHD.png", width = 8, height = 6)
+
+
+
+# Re-run VIF to confirm multicollinearity is still fine after replacement
+vif_model_after <- glm(
+  ten_year_chd ~ age + cigs_per_day + tot_chol + pulse_pressure +
+    bmi + heart_rate + glucose +
+    sex + current_smoker + bp_meds +
+    prevalent_stroke + prevalent_hyp + diabetes + education,
+  data   = framingham_model_new |>
+    mutate(across(where(is.factor), ~as.integer(.) - 1L)),
+  family = binomial()
+)
+
+vif(vif_model_after) |>
+  as.data.frame() |>
+  rownames_to_column("variable") |>
+  rename(VIF = 2) |>
+  arrange(desc(VIF))
+
+
+# scaling
+
+continuous_to_scale <- c("age", "tot_chol",
+                         "bmi", "heart_rate", "glucose", "pulse_pressure")
+
+encoding_recipe <- recipe(ten_year_chd ~ ., data = framingham_model_new) |>
+  step_normalize(all_of(continuous_to_scale)) |>
+  step_mutate(education = as.integer(education)) |>
+  step_dummy(all_nominal_predictors(), one_hot = FALSE)
+
+# Split first
+set.seed(123)
+split      <- initial_split(framingham_model_new,
+                            prop    = 0.8,
+                            strata  = ten_year_chd)
+train_data <- training(split)
+test_data  <- testing(split)
+
+# Prep on train only, apply to both
+encoding_prep <- prep(encoding_recipe, training = train_data)
+train_scaled  <- bake(encoding_prep, new_data = train_data)
+test_scaled   <- bake(encoding_prep, new_data = test_data)
+
+# Verify
+glimpse(train_scaled)
+prop.table(table(train_scaled$ten_year_chd))
+prop.table(table(test_scaled$ten_year_chd))
+
+# Save
+write.csv(train_scaled, "Data/train_scaled.csv", row.names = FALSE)
+write.csv(test_scaled,  "Data/test_scaled.csv",  row.names = FALSE)
+
+cat("Train:", nrow(train_scaled), "rows |", ncol(train_scaled), "columns\n")
+cat("Test: ", nrow(test_scaled),  "rows |", ncol(test_scaled),  "columns\n")
+
+
+continuous_var_to_plot <- c("age", "tot_chol", "bmi", 
+                            "heart_rate", "glucose", "pulse_pressure")
+
+# Scaled vars from train_scaled + unscaled cigs from train_data
+plot_data <- train_scaled |>
+  select(all_of(continuous_var_to_plot)) |>
+  bind_cols(train_data |> select(cigs_per_day))
+
+plot_data |>
+  pivot_longer(everything(), names_to = "variable", values_to = "value") |>
+  drop_na(value) |>
+  mutate(variable = factor(variable,
+                           levels = c(continuous_var_to_plot, "cigs_per_day"),
+                           labels = c("Age (years)", "Total Cholesterol",
+                                      "BMI", "Heart Rate", "Glucose",
+                                      "Pulse Pressure", "Cigarettes/Day"))) |>
+  ggplot(aes(x = value)) +
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 35, fill = "steelblue",
+                 color = "white", alpha = 0.75) +
+  geom_density(color = "darkred", linewidth = 0.9) +
+  facet_wrap(~variable, scales = "free", ncol = 4) +
+  labs(title    = "Distributions of Continuous Predictors After Scaling",
+       subtitle = "Scaled vars centered at 0 | Cigarettes/Day shown in original units",
+       x = NULL, y = "Density") +
+  theme_minimal(base_size = 11)
+
+ggsave("Figures/scaled_distributions.png", width = 12, height = 6)
