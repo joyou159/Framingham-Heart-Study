@@ -14,6 +14,7 @@ library(kableExtra)
 library(gt)
 library(modelsummary)
 library(patchwork)
+library(ggcorrplot)
 
 
 install.packages("")
@@ -74,17 +75,17 @@ skim(framingham)
 
 datasummary_skim(
   framingham,
-  type      = "numeric",
+  type = "numeric",
   fun_numeric = list(
-    N        = \(x) sum(!is.na(x)),
-    Mean     = \(x) round(mean(x,na.rm = TRUE), 2),
-    SD       = \(x) round(sd(x,na.rm = TRUE), 2),
-    Median   = \(x) round(median(x,na.rm = TRUE), 2),
-    IQR      = \(x) round(IQR(x,na.rm = TRUE), 2),
-    P5       = \(x) round(quantile(x, 0.05, na.rm = TRUE), 2),
-    P95      = \(x) round(quantile(x, 0.95, na.rm = TRUE), 2),
-    Skewness = \(x) round(moments::skewness(x, na.rm = TRUE), 2),
-    N_Miss   = \(x) as.integer(sum(is.na(x)))
+    Mean   = \(x) round(mean(x, na.rm = TRUE), 2),
+    SD     = \(x) round(sd(x, na.rm = TRUE), 2),
+    Median = \(x) round(median(x, na.rm = TRUE), 2),
+    IQR    = \(x) round(IQR(x, na.rm = TRUE), 2),
+    Min    = \(x) round(min(x, na.rm = TRUE), 2),
+    Max    = \(x) round(max(x, na.rm = TRUE), 2),
+    P5     = \(x) round(quantile(x, 0.05, na.rm = TRUE), 2),
+    P95    = \(x) round(quantile(x, 0.95, na.rm = TRUE), 2),
+    N_Miss = \(x) as.integer(sum(is.na(x)))
   ),
   output = "Figures/numeric_summary.png"
 )
@@ -166,10 +167,11 @@ framingham |>
 ggsave("Figures/Distributions_of_Continuous_var.png")
 
 
+
 framingham |>
   select(all_of(continuous_vars)) |>
   pivot_longer(everything(), names_to = "variable", values_to = "value") |>
-  drop_na(value) |
+  drop_na(value) |>                                    # ← missing > here
   mutate(
     variable = factor(
       variable,
@@ -180,11 +182,11 @@ framingham |>
     )
   ) |>
   ggplot(aes(x = "", y = value)) +
-  geom_jitter(width = 0.2, alpha = 0.07, color = "steelblue", size = 0.5, na.rm = TRUE) +
+  geom_jitter(width = 0.2, alpha = 0.07, color = "steelblue", size = 0.5) +
   geom_boxplot(alpha = 0.5, fill = "lightyellow",
-               outlier.shape = NA, linewidth = 0.7, na.rm = TRUE) +
-  stat_summary(fun = \(x) mean(x, na.rm = TRUE),
-               geom = "point", shape = 18, size = 3, color = "darkred", na.rm = TRUE) +
+               outlier.shape = NA, linewidth = 0.7) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 18, size = 3, color = "darkred") +
   facet_wrap(~variable, scales = "free_y", ncol = 4) +
   labs(title    = "Boxplots of Continuous Predictors",
        subtitle = "Red diamond = mean; jittered points show raw data",
@@ -211,7 +213,7 @@ ggplot(skew_df, aes(x = variable, y = skewness, fill = direction)) +
   coord_flip() +
   scale_fill_manual(values = c("steelblue", "tomato")) +
   labs(title    = "Skewness of Continuous Predictors",
-       subtitle = "Dashed lines at ±1 — beyond this, transformation may help",
+       subtitle = "Dashed lines at +1 or -1",
        x = NULL, y = "Skewness", fill = NULL) +
   theme_minimal(base_size = 13)
 
@@ -333,6 +335,43 @@ framingham |>
         legend.position = "bottom")
 
 ggsave("Figures/categorical_predictors_by_CHD_proportion.png")
+
+
+
+# correlation matrix
+framingham_cor <- framingham |>
+  mutate(
+    sex            = as.integer(sex),
+    current_smoker = as.integer(current_smoker),
+    bp_meds        = as.integer(bp_meds),
+    prevalent_stroke = as.integer(prevalent_stroke),
+    prevalent_hyp  = as.integer(prevalent_hyp),
+    diabetes       = as.integer(diabetes),
+    education      = as.integer(education),
+    ten_year_chd   = as.integer(ten_year_chd)
+  )
+
+cor_matrix <- cor(framingham_cor, use = "pairwise.complete.obs")
+
+ggcorrplot(
+  cor_matrix,
+  type       = "upper",
+  lab        = TRUE,
+  lab_size   = 3,
+  method     = "square",
+  colors     = c("tomato", "white", "steelblue"),
+  outline.color = "white",
+  tl.cex     = 10,
+  tl.srt     = 45
+) +
+  labs(title    = "Correlation Matrix",
+       subtitle = "Blue = positive | Red = negative correlation") +
+  theme(plot.title    = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 11, color = "gray40"),
+        legend.title  = element_text(size = 10))
+
+ggsave("Figures/correlation_matrix.png", width = 12, height = 10, dpi = 150)
+
 
 
 # Missing Data (specifically in glucose) ------------------------------------------------------------
@@ -479,11 +518,12 @@ ggsave("Figures/categorical_covar_profiles_by_glucose_missingness.png", plot = p
 # MAR assessment! ---------------------------------------------------------
 
 
+framingham <- framingham |> 
+  filter(!is.na(heart_rate))
 
 # Little's MCAR Test (global)
 # Tests whether data is MCAR across all variables simultaneously
 # H0: data is MCAR — p < 0.05 suggests NOT MCAR (i.e., MAR or MNAR)
-
 
 framingham_numeric <- framingham |>
   mutate(
@@ -505,9 +545,9 @@ little_test # p-value < 0.05, reject MCAR, the missingness has a systematic
 
 
 missing_vars <- c("glucose", "education", "bp_meds", 
-                  "tot_chol", "cigs_per_day", "bmi", "heart_rate")
+                  "tot_chol", "cigs_per_day", "bmi")
 
-mar_results <- map(missing_vars, function(var) {
+mar_results_full <- map_dfr(missing_vars, function(var) {
   
   d <- framingham |>
     mutate(
@@ -522,7 +562,6 @@ mar_results <- map(missing_vars, function(var) {
       chd_num        = as.integer(ten_year_chd)
     )
   
-  # Only test predictors that aren't the variable itself
   predictors <- c("age", "sys_bp", "dia_bp", "bmi", "heart_rate",
                   "tot_chol", "cigs_per_day", "glucose",
                   "sex_num", "smoker_num", "bp_meds_num",
@@ -531,68 +570,251 @@ mar_results <- map(missing_vars, function(var) {
     setdiff(c(var, paste0(var, "_num")))
   
   formula_str <- paste("miss_indicator ~", paste(predictors, collapse = " + "))
-  
   fit <- glm(as.formula(formula_str), data = d, family = binomial())
   
-  tidy_fit <- broom::tidy(fit) |>
-    filter(term != "(Intercept)", p.value < 0.05) |>
-    arrange(p.value)
-  
-  list(variable = var, significant_predictors = tidy_fit)
+  broom::tidy(fit) |>
+    filter(term != "(Intercept)") |>
+    mutate(
+      missing_var = var,
+      significant = p.value < 0.05,
+      # clean up term names for display
+      term = recode(term,
+                    sex_num       = "Sex",
+                    smoker_num    = "Current Smoker",
+                    bp_meds_num   = "BP Meds",
+                    stroke_num    = "Prev. Stroke",
+                    hyp_num       = "Hypertension",
+                    diabetes_num  = "Diabetes",
+                    education_num = "Education",
+                    chd_num       = "CHD",
+                    age           = "Age",
+                    sys_bp        = "Systolic BP",
+                    dia_bp        = "Diastolic BP",
+                    bmi           = "BMI",
+                    heart_rate    = "Heart Rate",
+                    tot_chol      = "Total Cholesterol",
+                    cigs_per_day  = "Cigs/Day",
+                    glucose       = "Glucose")
+    )
 })
 
 
-# Print results
-walk(mar_results, function(res) {
-  cat("\n────────────────────────────────\n")
-  cat("Missingness in:", res$variable, "\n")
-  if (nrow(res$significant_predictors) == 0) {
-    cat("  → No significant predictors found (consistent with MCAR)\n")
-  } else {
-    cat("  → Missingness predicted by (p < 0.05):\n")
-    print(res$significant_predictors |> select(term, estimate, p.value))
-    cat("  → Interpretation: MAR — safe for MICE\n")
-  }
-})
+mar_summary <- mar_results_full |>
+  group_by(missing_var) |>
+  summarise(
+    n_sig = sum(significant),
+    verdict = ifelse(n_sig > 0, "MAR", "MCAR"),
+    sig_names = paste(term[significant], collapse = ", "),  # which predictors
+    .groups = "drop"
+  )
 
-
-
-mar_plot_data <- map_dfr(mar_results, function(res) {
-  if (nrow(res$significant_predictors) == 0) {
-    tibble(missing_var = res$variable, 
-           n_sig_predictors = 0, 
-           verdict = "MCAR (no predictors)")
-  } else {
-    tibble(missing_var = res$variable,
-           n_sig_predictors = nrow(res$significant_predictors),
-           verdict = "MAR (predictors found)")
-  }
-})
-
-ggplot(mar_plot_data, 
-       aes(x = fct_reorder(missing_var, n_sig_predictors), 
-           y = n_sig_predictors, fill = verdict)) +
+p1 <- ggplot(mar_summary,
+             aes(x = fct_reorder(missing_var, n_sig), y = n_sig, fill = verdict)) +
   geom_col(alpha = 0.85) +
-  geom_text(aes(label = n_sig_predictors), hjust = -0.3, size = 4) +
+  geom_text(aes(label = ifelse(n_sig > 0,
+                               paste0(n_sig, "  [", sig_names, "]"),
+                               "0  → MCAR")),
+            hjust = -0.05, size = 3.2) +
   coord_flip() +
-  scale_fill_manual(values = c("MAR (predictors found)" = "tomato")) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  scale_fill_manual(values = c("MAR" = "tomato", "MCAR" = "steelblue")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.7))) +
   labs(title    = "MAR Assessment: Significant Predictors of Missingness",
-       subtitle = "Count of covariates (p < 0.05) that predict each variable's missingness",
+       subtitle = "Brackets show which covariates significantly predict missingness (p < 0.05)",
        x = NULL, y = "# Significant Predictors", fill = NULL) +
-  theme_minimal(base_size = 13) +
+  theme_minimal(base_size = 12) +
   theme(legend.position = "bottom")
 
-ggsave("Figures/MAR_assessment.png")
+p1
+ggsave("Figures/MAR_assessment.png", width = 12, height = 6)
+
+
+p2 <- mar_results_full |>
+  filter(missing_var != "heart_rate") |>       # 1 missing row — uninformative
+  mutate(
+    missing_var = factor(missing_var),
+    sig_label   = ifelse(significant, "p < 0.05", "n.s.")
+  ) |>
+  ggplot(aes(x = missing_var, y = fct_reorder(term, -p.value),
+             fill = sig_label)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = ifelse(significant,
+                               paste0("p=", round(p.value, 3)), "")),
+            size = 3, color = "white", fontface = "bold") +
+  scale_fill_manual(values = c("p < 0.05" = "tomato", "n.s." = "gray88")) +
+  labs(title    = "Which Covariates Predict Missingness in Each Variable?",
+       subtitle = "Red = significant predictor of missingness (p < 0.05) | Gray = not significant",
+       x = "Variable with Missing Data", y = "Predictor", fill = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position  = "bottom",
+        axis.text.x      = element_text(angle = 30, hjust = 1),
+        panel.grid       = element_blank())
+
+p2
+ggsave("Figures/MAR_assessment_heatmap.png", width = 9, height = 8)
+
+# MICE Imputation ---------------------------------------------------------
+
+init <- mice(framingham, maxit = 0)  # dry run, no iterations
+init$method
+init$predictorMatrix # see which variables predict which
+
+meth <- init$method
+
+
+imp <- mice(
+  framingham,
+  method    = meth,
+  m         = 10,      # 10 imputed datasets — good balance
+  maxit     = 20,      # 20 iterations per dataset — enough for convergence
+  seed      = 123,     # reproducibility
+  printFlag = FALSE    # suppress noisy iteration output
+)
+
+
+summary(imp)
+
+plot(imp, layout = c(4, 7))   # rough check
+
+
+str(imp$chainMean)
+dim(imp$chainMean)
+
+conv_data <- imp$chainMean |>
+  as.data.frame.table(responseName = "mean") |>
+  setNames(c("variable", "iteration", "imputation", "mean")) |>
+  mutate(iteration = as.integer(iteration))  # now iteration is already numeric index
+
+
+conv_data |>
+  filter(!is.na(mean)) |>
+  ggplot(aes(x = iteration, y = mean, 
+             color = imputation, group = imputation)) +
+  geom_line(alpha = 0.7) +
+  facet_wrap(~variable, scales = "free_y", ncol = 3) +
+  labs(title    = "MICE Convergence: Chain Means",
+       x = "Iteration", y = "Mean of Imputed Values") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none")
+
+ggsave("Figures/mice_convergence.png")
+
+
+
+continuous_imputed <- c("glucose", "bmi", "tot_chol", "cigs_per_day")
+
+# threshold — if fewer than this many missing, use rug instead of density
+rug_threshold <- 60
+
+map(continuous_imputed, function(var) {
+  
+  n_missing <- sum(is.na(framingham[[var]]))
+  
+  obs <- tibble(value = framingham[[var]][!is.na(framingham[[var]])])
+  
+  imp_vals <- map_dfr(1:imp$m, function(i) {
+    tibble(
+      value      = complete(imp, i)[[var]][is.na(framingham[[var]])],
+      imputation = i
+    )
+  })
+  
+  p <- ggplot() +
+    geom_density(data = obs, aes(x = value),
+                 color = "steelblue", linewidth = 1.1,
+                 fill  = "steelblue", alpha = 0.15)
+  
+  if (n_missing < rug_threshold) {
+    p <- p +
+      geom_rug(data  = imp_vals, aes(x = value),
+               color = "tomato", alpha = 0.7,
+               linewidth = 0.6, length = unit(0.05, "npc")) +
+      labs(subtitle = paste0("Blue = observed | Red ticks = ",
+                             n_missing, " imputed values across 10 datasets"))
+  } else {
+    p <- p +
+      geom_density(data  = imp_vals,
+                   aes(x = value, group = imputation),
+                   color = "tomato", alpha = 0.4, linewidth = 0.4) +
+      labs(subtitle = "Blue = observed | Red lines = each imputed dataset")
+  }
+  
+  p +
+    labs(title = paste0(var, "  (n missing = ", n_missing, ")"),
+         x = NULL, y = "Density") +
+    theme_minimal(base_size = 11)
+  
+}) |>
+  wrap_plots(ncol = 2) +
+  plot_annotation(
+    title = "Imputed vs Observed Distributions",
+    theme = theme(plot.title = element_text(size = 14, face = "bold"))
+  )
+
+ggsave("Figures/mice_imputed_vs_observed.png", width = 10, height = 8)
+
+
+
+framingham_complete <- complete(imp, 1)
+
+
+sum(is.na(framingham_complete))
+glimpse(framingham_complete)
 
 
 
 
 
+# Outliner Detection ------------------------------------------------------
+
+framingham_complete |>
+  select(all_of(continuous_vars), ten_year_chd) |>
+  pivot_longer(-ten_year_chd, names_to = "variable", values_to = "value") |>
+  drop_na(value) |>
+  mutate(
+    variable = factor(
+      variable,
+      levels = continuous_vars,
+      labels = c("Age", "Cigarettes/Day", "Total Chol.",
+                 "Systolic BP", "Diastolic BP",
+                 "BMI", "Heart Rate", "Glucose")
+    )
+  ) |>
+  ggplot(aes(x = "", y = value)) +
+  geom_jitter(aes(color = ten_year_chd),
+              width = 0.2, alpha = 0.15, size = 0.5) +
+  geom_boxplot(alpha = 1, fill = "lightyellow",
+               outlier.shape = NA, linewidth = 0.7) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 18, size = 3, color = "darkred") +
+  facet_wrap(~variable, scales = "free_y", ncol = 4) +
+  scale_color_manual(values = c("No" = "steelblue", "Yes" = "tomato")) +
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+  labs(title    = "Boxplots of Continuous Predictors by CHD Status",
+       subtitle = "Red diamond = mean | Tomato = CHD positive | Blue = CHD negative",
+       x = NULL, y = NULL,
+       color = "10-yr CHD") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+ggsave("Figures/boxplots_colored_by_CHD.png")
 
 
-
-
-
+datasummary_skim(
+  framingham_complete,
+  type = "numeric",
+  fun_numeric = list(
+    Mean   = \(x) round(mean(x, na.rm = TRUE), 2),
+    SD     = \(x) round(sd(x, na.rm = TRUE), 2),
+    Min    = \(x) round(min(x, na.rm = TRUE), 2),
+    P5     = \(x) round(quantile(x, 0.05, na.rm = TRUE), 2),
+    Q1     = \(x) round(quantile(x, 0.25, na.rm = TRUE), 2),
+    Median = \(x) round(median(x, na.rm = TRUE), 2),
+    Q3     = \(x) round(quantile(x, 0.75, na.rm = TRUE), 2),
+    P95    = \(x) round(quantile(x, 0.95, na.rm = TRUE), 2),
+    Max    = \(x) round(max(x, na.rm = TRUE), 2),
+    IQR    = \(x) round(IQR(x, na.rm = TRUE), 2),
+    Skewness = \(x) round(moments::skewness(x, na.rm = TRUE), 2)),
+  output = "Figures/numeric_summary_after_imputation.png"
+)
 
 
