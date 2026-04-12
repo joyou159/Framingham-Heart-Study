@@ -429,14 +429,90 @@ print(co_missingness)  # explicit print() to be safe
 dev.off()
 
 
+# dropping co-missingness (observations has missingness > 1 missing value)
+
+glimpse(framingham)
+
+
+# First check how many rows have more than 1 missing
+framingham |>
+  mutate(n_missing = rowSums(is.na(across(everything())))) |>
+  count(n_missing)
+
+
+framingham |>
+  mutate(n_missing = rowSums(is.na(across(everything())))) |>
+  filter(n_missing > 1 | is.na(heart_rate)) |>
+  count(ten_year_chd) |>
+  mutate(prop = n / sum(n))
 
 
 
+framingham_clean <- framingham |>
+  filter(!is.na(heart_rate)) |>
+  mutate(n_missing = rowSums(is.na(across(everything())))) |>
+  filter(n_missing <= 1) |>
+  select(-n_missing)
+
+glimpse(framingham_clean)
+
+
+# preprocessing (feature engineering + outlier treatment) ----------------------------------------
+
+# Feature engineering
+
+framingham_clean <- framingham_clean |>
+  mutate(pulse_pressure = sys_bp - dia_bp) |>
+  select(-sys_bp, -dia_bp)
+
+glimpse(framingham_clean)
+
+
+framingham_clean |>
+  summarise(
+    min = min(pulse_pressure),
+    max = max(pulse_pressure),
+    mean = mean(pulse_pressure),
+    sd = sd(pulse_pressure)
+  )
 
 
 
+# outlier detection
+continuous_vars <- c("age", "cigs_per_day", "tot_chol", "pulse_pressure",
+                     "bmi", "heart_rate", "glucose")
+
+framingham_clean |>
+  select(all_of(continuous_vars)) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "value") |>
+  group_by(variable) |>
+  summarise(
+    P1  = quantile(value, 0.01, na.rm = TRUE),
+    P99 = quantile(value, 0.99, na.rm = TRUE),
+    min = min(value, na.rm = TRUE),
+    max = max(value, na.rm = TRUE)
+  )
+
+
+# glucose vs diabetes (leave all of them, they are clinically plausible)
+framingham_clean |>
+  filter(glucose > 200) |>
+  select(glucose, diabetes, ten_year_chd)
 
 
 
+framingham_clean |>
+  filter(tot_chol > 500) |>
+  select(tot_chol, age, sex, ten_year_chd)
 
+
+framingham_clean <- framingham_clean |>
+  filter(tot_chol <= 500)
+
+# Confirm number of observations
+nrow(framingham_clean)
+
+
+
+saveRDS(framingham_clean, "Data/framingham_processed.rds")
 

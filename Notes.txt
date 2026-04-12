@@ -168,9 +168,126 @@ co-missing in 38 rows. Everything else is in single digits and essentially negli
 
 
 
+((Call to action))
+Drop all the observations with more than 1 missingness value (observations with co-missingness are dropped)
+Assume that all missingness is MAR.
+
 
 --------------------------------------- Plan for analysis ---------------------------------------
 
-Split -> impute train (using the model for train imputation to impute for  test data) -> fit model -> validate (on imputed test).
 
+1. Drop rows with >1 missing value
+2. Feature engineering — compute pulse pressure from sys_bp and dia_bp, keep current_smoker temporarily for imputation
+3. Outlier detection and treatment
+4. Train/test split stratified by ten_year_chd
+5. Scale continuous predictors using train mean/SD only, apply same scaling to test — binary and categorical variables stay unscaled throughout
+6. Bayesian imputation on train set — for each variable with missingness, fit a Bayesian model with all other variables as predictors 
+(continuous predictors scaled, binary/categorical unscaled, ten_year_chd included as predictor) and the target imputation variable as the unscaled outcome — generate full posterior predictive distributions for missing values
+7. Apply learned imputation models to test set using train scaling parameters
+8. Drop current_smoker
+9. Bayesian logistic regression with SSVS for variable selection
+10. Validation
+
+
+
+--------------------------------------------------------------------------------------------------------
+
+-------------------------------------- Drop rows with >1 missing value ---------------------------------
+
+  n_missing    n
+1         0 3658
+2         1  521
+3         2   59
+4         3    2
+
+
+# proportion of dropped observation by CHD (including the one observation of heart_rate)
+  ten_year_chd  n      prop
+1           No 49 0.7903226
+2          Yes 13 0.2096774
+
+
+Prior to analysis, two exclusion criteria were applied. First, one observation with a missing heart rate value was removed,
+as building a full Bayesian imputation model for a single missing value was considered unnecessary overhead. Second, 61 observations
+with more than one simultaneously missing variable were removed, as jointly missing variables cannot serve as predictors in each
+other's imputation models without introducing substantial additional complexity. In total, 62 observations (1.5% of the sample) were excluded.
+
+To assess whether these exclusions were systematic with respect to the outcome, the 10-year CHD rate among excluded observations was 
+computed and found to be 21.0% (13 out of 62), compared to 15.2% in the full sample. While slightly elevated, the absolute number of excluded
+CHD-positive cases was only 13, representing 2.0% of all 644 CHD-positive cases in the original dataset. This difference was
+therefore considered negligible and unlikely to introduce meaningful bias. All subsequent analyses were conducted on the 
+remaining 4,178 observations.
+
+
+--------------------------------------- Feature engineering ---------------------------------------
+
+adding new column (pulse pressure) with stats:
+  min max    mean       sd
+1  15 160 49.4203 14.65787
+
+
+The pulse pressure range looks reasonable. A minimum of 15 and maximum of 160 are both clinically plausible 
+— narrow pulse pressure can occur in conditions like aortic stenosis and wide pulse pressure is common in elderly
+hypertensive patients. The mean of 49.4 mmHg and SD of 14.7 are consistent with what would
+be expected in a middle-aged cohort like Framingham.
+
+No extreme outliers flagged here — the sys_bp = 295 value that concerned us earlier produced a pulse pressure 
+of 160 which is high but not implausible given severe hypertension. We can revisit this during the formal 
+outlier detection step.
+
+
+----------------------------------------- Outlier detection and treatment -------------------------------------------
+
+# A tibble: 7 × 5
+  variable          P1   P99   min   max
+  <chr>          <dbl> <dbl> <dbl> <dbl>
+1 age             35    67    32    70  
+2 bmi             18.2  39.0  15.5  56.8
+3 cigs_per_day     0    43     0    70  
+4 glucose         55   175.   40   394  
+5 heart_rate      52   110    44   143  
+6 pulse_pressure  26    96.2  15   160  
+7 tot_chol       153   354.  107   696  
+
+
+Variables Needing Investigation ------------------------------------
+glucose — P99 is 175 but max is 394. Anything above 200 is clinically in diabetic crisis territory. Run the cross-check against diabetes status.
+tot_chol — P99 is 354 but max is 696. Anything above 500 is extremely rare clinically. Run the cross-check.
+bmi — P99 is 39 but max is 56.8. Severe obesity but biologically plausible. No cross-check needed.
+heart_rate — P99 is 110 but max is 143. Possible in atrial fibrillation or exercise, biologically plausible. No cross-check needed.
+cigs_per_day — P99 is 43 but max is 70. Heavy but not implausible for a 1960s cohort. No cross-check needed.
+pulse_pressure — P99 is 96 but max is 160. Already discussed, clinically plausible. No cross-check needed.
+age — completely clean, no concern.
+
+
+cross-check for glucose -------------------------------- 
+Every single extreme glucose value (>200) is paired with diabetes = Yes. This is perfect internal consistency — these are not 
+data entry errors, they are genuine diabetic patients with clinically expected high glucose levels.
+A glucose of 394 in a confirmed diabetic is entirely plausible and represents real biological signal that should be 
+retained in the model.
+
+Removing these values would actually bias your analysis by artificially truncating the glucose distribution in diabetic
+patients and weakening the glucose-CHD relationship.
+
+
+cross-check for total cholesterol -------------------------------- 
+
+  tot_chol age    sex ten_year_chd
+1      600  52 Female          Yes
+2      696  51   Male           No
+
+Two observations with total cholesterol values of 600 and 696 mg/dL were removed. 
+These values exceed the typical range of heterozygous familial hypercholesterolemia and are more consistent with 
+the homozygous form, which is genuinely rare. In the absence of any corroborating clinical variable to validate these extremes, 
+they cannot be reliably distinguished from data entry errors and were therefore excluded.
+
+
+
+((Report Paragraph for Outlier Treatment))
+Outlier detection was performed on all continuous variables by examining values beyond the 1st and 99th percentiles alongside clinical plausibility thresholds.
+Extreme glucose values (>200 mg/dL, n=34) were retained as all were paired with a confirmed diabetes diagnosis, representing genuine biological
+signal rather than data error. Two observations with total cholesterol values of 600 and 696 mg/dL were removed as these values exceed
+the typical range seen even in heterozygous familial hypercholesterolemia, cannot be corroborated by any other clinical
+variable in the dataset, and cannot be reliably distinguished from data entry errors. All other continuous variables had extreme values
+considered clinically plausible and were retained. Following outlier removal the analytic dataset comprised 4,176 observations.
 
