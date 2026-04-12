@@ -482,7 +482,6 @@ p_continuous <- framingham |>
   theme(legend.position = "none")
 
 
-
 p_continuous
 
 ggsave("Figures/continous_covar_profiles_by_glucose_missingness.png", plot = p_continuous)
@@ -515,8 +514,6 @@ p_categorical
 
 
 ggsave("Figures/categorical_covar_profiles_by_glucose_missingness.png", plot = p_categorical)
-
-
 
 # MAR assessment! ---------------------------------------------------------
 

@@ -1,10 +1,13 @@
-Missingness analysis
------------------------
-1. CHD Rate: Glucose Missing vs Observed test
-    visually, the bar plots are very close -> heart disease does not predict missing glucose.
-    using chi-square testing, p = 0.2108, p > 0.05 -> not significant association
-    using logistic regression (glm), we got estimate: -0.209 with p-value: 0.186 > 0.05
+Notes on EDA: 
 
-overall, we could say confidently that Glucose missingness is MCAR (w.r.t CHD)
+1. we have huge imbalance in the dataset for the target_var (Class imbalance: 644 Yes vs 3,596 No → roughly 85% / 15% split)
+    - This means we will need to account for this imbalance during the evaluation phase (don't report accuracy, confusion matrix)
 
-2. MAR (Missing At Random) diagnostics for continous and categorical covariates (To-Do)
+2. glucose has the biggest imputation challenge ->  9.2% missing, and likely not missing at random (MNAR) 
+since diabetic/high-risk patients may have more measurements taken.
+
+3. bp_meds (blood pressure medications) — very skewed (124 Yes vs 4063 No) 
+4. prevalent_stroke — very rare (25 Yes) — may have limited predictive power.
+5. diabetes — rare (109 Yes) — potential overlap with glucose. (MNAR)
+6. cigs_per_day - may need zero-inflation treatment (heavily right-skewed (many zeros))
+7. to handle outliers, try to use cross-check suspicious values against other variables (e.g. is glucose 394 paired with diabetes = Yes?)
