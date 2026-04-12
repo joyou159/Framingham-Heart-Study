@@ -1,13 +1,176 @@
-Notes on EDA: 
+----------------------------------------------- Insights summary stats -------------------------------------------
 
-1. we have huge imbalance in the dataset for the target_var (Class imbalance: 644 Yes vs 3,596 No → roughly 85% / 15% split)
-    - This means we will need to account for this imbalance during the evaluation phase (don't report accuracy, confusion matrix)
+Categorical Variables ------------------
+- Target (ten_year_chd): 84.8% No vs 15.2% Yes — clear class imbalance that drives all downstream decisions 
+around validation and modeling.
 
-2. glucose has the biggest imputation challenge ->  9.2% missing, and likely not missing at random (MNAR) 
-since diabetic/high-risk patients may have more measurements taken.
+- Rare categories to watch: prevalent_stroke (only 25 Yes, 0.6%) is near-zero variance and may be unstable in the model. 
+diabetes (109 Yes, 2.6%) is rare but clinically important — keep it but monitor its posterior carefully.
 
-3. bp_meds (blood pressure medications) — very skewed (124 Yes vs 4063 No) 
-4. prevalent_stroke — very rare (25 Yes) — may have limited predictive power.
-5. diabetes — rare (109 Yes) — potential overlap with glucose. (MNAR)
-6. cigs_per_day - may need zero-inflation treatment (heavily right-skewed (many zeros))
-7. to handle outliers, try to use cross-check suspicious values against other variables (e.g. is glucose 394 paired with diabetes = Yes?)
+- bp_meds has 53 missing and only 3% exposed — rare and incomplete, missingness worth investigating. 
+current_smoker is well balanced (50/50) and a strong candidate predictor. education is ordinal with 4 levels and 105 missing — decide early whether to treat as ordinal or dummy-coded.
+
+
+Continuous Variables --------------------
+- age is the cleanest variable — skewness of 0.2, no missing, well behaved. 
+dia_bp and heart_rate are also relatively clean with mild skew and negligible missingness.
+
+- glucose is the most problematic — skewness of 6.2, 388 missing, and a max of 394 which is only plausible in diabetic patients. If any of those extreme values are paired with diabetes = No, that's a data quality flag.
+Missingness here is almost certainly not random (MNAR).
+
+- tot_chol max of 696 is clinically implausible — typical clinical ceiling is around 400. 
+Worth cross-checking and likely removing that observation. sys_bp max of 295 is extreme but possible in a hypertensive crisis — check if paired with bp_meds = Yes or prevalent_hyp = Yes. 
+bmi of 56.8 is severe obesity but biologically plausible — keep it.
+
+- cigs_per_day has median 0, mean 9, and skewness 1.2 — the zero inflation is entirely explained by non-smokers.
+The real smoker distribution runs from roughly 1 to 30 (P95), which is reasonable.
+
+
+((Points to Carry Forward))
+- Class imbalance must be addressed through stratified splitting and validation metrics focused on AUC and calibration rather than accuracy.
+Glucose needs the most careful imputation treatment given both its missingness volume and likely MNAR nature. 
+The redundancy between cigs_per_day and current_smoker needs a decision before modeling. 
+Scaling is essential given the wide range differences across variables.
+And the extreme values in tot_chol and glucose should be investigated against other clinical variables before imputation.
+
+
+
+------------------------------------------ Univariate investigation -------------------------------------
+
+Continuous Variables (Distributions + Boxplots + Skewness) ------------------
+- The density plots confirm what the summary stats suggested. Age is the cleanest variable, approximately symmetric and well-behaved. 
+Diastolic BP and heart rate are similarly well-distributed with mild right tails.
+
+- The most visually striking finding is glucose — the density is almost entirely compressed near 80 with an extreme right tail stretching to 400, which the boxplot makes even clearer. 
+The mass of the distribution and the outliers are on completely different scales. 
+This reinforces that glucose extreme values are a small diabetic subpopulation, not a gradual skew.
+
+- Cigarettes per day shows the zero-inflation clearly in the density plot — the spike at zero is dominant, then a secondary bump around 20 representing actual smokers. 
+This visually confirms the redundancy with current_smoker.
+Total cholesterol and systolic BP both show long right tails with isolated extreme points visible in the boxplots — the tot_chol value near 700 
+and sys_bp near 300 are clearly separated from the main distribution, reinforcing the need to investigate those specific observations.
+
+- BMI shows a clean unimodal distribution with a gradual right tail — the max of 56.8 is visible but not dramatically separated from the rest.
+
+Categorical Variables -----------------------------
+- Again largely confirmatory, but the visual makes the severity of some imbalances more tangible.
+Prevalent stroke at 0.6% is visually almost invisible — the Yes bar is barely a line. 
+This is the strongest visual argument for flagging it as a potentially uninformative predictor after SSVS. 
+Diabetes and bp_meds tell a similar story.
+
+- Hypertension at 31.1% Yes is the most balanced among the rare-event categoricals and is clinically meaningful — this one is worth keeping with confidence.
+Current smoker being nearly 50/50 is reassuring. Education being dominated by "Some HS" at 41.6% is worth keeping
+in mind when interpreting that variable's effect.
+
+
+((Bottom Line))
+These plots don't change anything from the summary stats but they do visually confirm two things worth carrying forward — the glucose distribution is genuinely bimodal 
+in nature (normal population vs diabetic subgroup) rather than just skewed, and prevalent stroke is so rare it may 
+cause estimation instability regardless of what SSVS does with it.
+
+
+
+------------------------------------------ Bivariate investigation -------------------------------------
+
+Continuous Predictors by CHD Status -------------------------
+
+- Age is the clearest separator — the CHD=Yes distribution is visibly shifted to the right, peaking around 55-60 compared
+to 40-45 for CHD=No. This is the strongest visual signal among all continuous predictors and aligns well with the literature.
+
+- Systolic BP shows a meaningful rightward shift for CHD=Yes, with a heavier tail at higher values.
+The separation is not as clean as age but is clearly present. This is an expected and important predictor.
+
+- Cigarettes per day shows a subtle but visible difference — the CHD=Yes group has a slightly heavier distribution in the 10-30 range 
+relative to CHD=No. The zero spike is similar between groups, suggesting the smoking effect comes from quantity smoked
+rather than smoking status alone. This is an argument for keeping cigs_per_day over current_smoker.
+
+- Total cholesterol, diastolic BP, BMI, heart rate, and glucose show very little separation between CHD groups. 
+The distributions nearly overlap completely. This doesn't mean they're unimportant — it means their effect may be modest
+or mediated through other variables — but expect weaker posterior inclusion probabilities for these in SSVS.
+
+
+Categorical Predictors by CHD Proportion -----------------------
+
+- Prevalent stroke stands out here despite its rarity — roughly 40% of stroke patients developed CHD versus about 15% in the non-stroke group. 
+This is a strong proportional signal, but the very small sample (25 cases) means this estimate is highly uncertain. 
+The wide credible interval in your Bayesian model will reflect that uncertainty honestly.
+
+- Diabetes tells a similar story — about 35% CHD rate among diabetics versus 15% in non-diabetics. 
+Clinically meaningful and consistent with literature, though again the small n limits precision.
+
+- Hypertension shows a clear difference — roughly 22% CHD rate among hypertensives versus about 12% in normotensives. 
+Well-powered enough to be reliable given 31% prevalence.
+
+- BP medication shows elevated CHD in the Yes group, but this is likely confounded — people on BP meds already have cardiovascular risk factors.
+The association reflects underlying disease severity more than the medication itself. <<<<<<<<<<<<<<<<
+
+- Current smoker shows a modest but visible difference, consistent with the continuous density plot observation.
+
+- Sex shows males have noticeably higher CHD proportion than females — this is a well-established finding and should be a reliable predictor.
+
+- Education shows a gradient — lower education levels associate with slightly higher CHD proportion, 
+consistent with socioeconomic health literature, though the differences are modest.
+
+
+Correlation Matrix ---------------------------------
+
+- The most important finding here is the sys_bp / dia_bp correlation of 0.78 — this is substantial multicollinearity. Including both in the model simultaneously
+will make their individual coefficients unstable and harder to interpret.
+You should either drop one (dia_bp is typically the weaker CHD predictor), use only sys_bp, or be aware that
+SSVS may select one and exclude the other depending on which explains more variance.
+
+- cigs_per_day and current_smoker correlate at 0.77 — this confirms the redundancy we flagged earlier.
+Keeping both is problematic. Given that the bivariate plot suggested cigs_per_day carries more signal, dropping current_smoker and keeping cigs_per_day is the more defensible choice.
+
+- glucose and diabetes correlate at 0.62 — expected, but not so
+high as to be a problem since they capture different things (continuous level vs clinical diagnosis). Keep both but monitor their posteriors together.
+
+- sys_bp and prevalent_hyp correlate at 0.39 and age and sys_bp at 0.39 — moderate but not alarming. 
+Worth watching in the posterior but unlikely to cause serious instability.
+
+- Correlations with the outcome (ten_year_chd) are all modest, with age (0.23) and sys_bp (0.22) 
+being the strongest, followed by tot_chol (0.15) and cigs_per_day (0.18).  This is consistent with the density plots.
+
+
+
+((Key Decisions to Make Before Modeling))
+The correlation matrix crystallizes two decisions you need to make explicitly: 
+drop current_smoker in favor of cigs_per_day, and decide how to handle the sys_bp / dia_bp pair — either drop dia_bp or let SSVS handle it and report whichever gets selected. 
+Both decisions should be documented and justified in your write-up.
+
+>> Drop both sys_bp and dia_bp, replace with pulse_pressure = sys_bp - dia_bp, and cite the cardiovascular literature supporting it as an independent CHD predictor. Clean, justified, and interpretable.
+
+
+
+-------------------------------------------------- Missingness analysis ------------------------------------------
+
+Missing Proportions ------------------------------
+The bar chart tells a clear two-tier story. Glucose stands alone at 9.2% (n=388) — it is in a
+completely different category from everything else. Education at 2.5% is a distant second, and everything below that 
+(bp_meds, tot_chol, cigs_per_day, bmi, heart_rate) is at or below 1.2% and largely negligible in terms of imputation complexity. 
+Heart rate with a single missing value barely warrants any treatment at all.
+
+
+Missingness Pattern Across All Rows ------------------------------------
+The row-level pattern plot confirms that missingness is scattered randomly across the dataset with no obvious
+clustering of missing rows in a particular region of the data. Glucose missingness appears throughout the 
+entire index range (rows 0 to 4000), not concentrated in any particular block. This is a mild visual argument against a
+systematic data collection failure at a specific time point, though it doesn't rule out MNAR.
+
+
+Co-missingness (UpSet Plot) --------------------------------------
+The dominant finding is that 331 observations have glucose missing alone, by far the largest bar and confirming that glucose missingness
+is largely its own phenomenon. Similarly, 93 observations have education missing alone and 51 have bp_meds missing alone — these are 
+all single-variable missingness, not co-occurrence.
+
+- When it comes to actual co-missingness, the intersections are very small. The only one worth noting is tot_chol and glucose 
+co-missing in 38 rows. Everything else is in single digits and essentially negligible. This is a clean and reassuring picture overall
+
+
+
+
+--------------------------------------- Plan for analysis ---------------------------------------
+
+Split -> impute train (using the model for train imputation to impute for  test data) -> fit model -> validate (on imputed test).
+
+

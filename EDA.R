@@ -7,7 +7,6 @@ library(corrplot)
 library(GGally)         
 library(ggmosaic)       
 library(patchwork)      
-library(mice)           
 library(janitor)        
 library(modelsummary)
 library(moments)
@@ -428,8 +427,6 @@ co_missingness
 png("Figures/co_missingness.png", width = 2400, height = 1600, res = 300)
 print(co_missingness)  # explicit print() to be safe
 dev.off()
-
-
 
 
 
