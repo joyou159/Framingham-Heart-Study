@@ -656,7 +656,6 @@ p2
 ggsave("Figures/MAR_assessment_heatmap.png", width = 9, height = 8)
 
 # MICE Imputation ---------------------------------------------------------
-
 init <- mice(framingham, maxit = 0)  # dry run, no iterations
 init$method
 init$predictorMatrix # see which variables predict which
@@ -762,10 +761,6 @@ framingham_complete <- complete(imp, 1)
 
 sum(is.na(framingham_complete))
 glimpse(framingham_complete)
-
-
-
-
 
 # Outliner Detection ------------------------------------------------------
 
