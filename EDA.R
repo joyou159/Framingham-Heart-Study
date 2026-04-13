@@ -385,6 +385,13 @@ ggsave("Figures/correlation_matrix.png", width = 12, height = 10, dpi = 150)
 
 # Missing Data ------------------------------------------------------------
 
+
+glucose_miss <- miss_var_summary(framingham) |>
+  filter(variable == "glucose") |>
+  mutate(pct_miss = as.numeric(pct_miss)) |>
+  pull(pct_miss) |>
+  round(1)
+
 p_miss_bar <- miss_var_summary(framingham) |>
   filter(n_miss > 0) |>
   mutate(
@@ -500,14 +507,11 @@ framingham_clean |>
   select(glucose, diabetes, ten_year_chd)
 
 
-
-framingham_clean |>
-  filter(tot_chol > 500) |>
-  select(tot_chol, age, sex, ten_year_chd)
+dim(framingham_clean)
 
 
 framingham_clean <- framingham_clean |>
-  filter(tot_chol <= 500)
+  filter(is.na(tot_chol) | tot_chol <= 500)
 
 # Confirm number of observations
 nrow(framingham_clean)
