@@ -293,20 +293,145 @@ considered clinically plausible and were retained. Following outlier removal the
 ------------------------------------------------- Bayesian imputation ----------------------------------------------
 
 # missingness after dropping co-missingness
- sex age education current_smoker cigs_per_day bp_meds prevalent_stroke prevalent_hyp
-  0   0        75              0           20      43                0             0
+  sex age education current_smoker cigs_per_day bp_meds prevalent_stroke prevalent_hyp
+1   0   0        92              0           23      51                0             0
   diabetes tot_chol bmi heart_rate glucose ten_year_chd pulse_pressure
-     0        6     13       0      271            0              0
-
+1        0        9  13          0     331            0              0
 
 Imputation Order (Least to Most Missing)
 
-tot_chol (n=6) — continuous, normal model
+tot_chol (n=9) — continuous, normal model
 bmi (n=13) — continuous, normal model
-cigs_per_day (n=20) — continuous, keep current_smoker as key predictor 
-bp_meds (n=43) — binary, logistic model
-education (n=75) — ordinal, ordinal logistic model
-glucose (n=271) — continuous, normal model, last since most missing and benefits from all others being complete
+cigs_per_day (n=23) — continuous, keep current_smoker as key predictor 
+bp_meds (n=51) — binary, logistic model
+education (n=92) — ordinal, ordinal logistic model
+glucose (n=331) — continuous, normal model, last since most missing and benefits from all others being complete
 
 
-state the modeling methods and provide justification (i.e. plot the distribution of each one individually)
+total cholesterol imputation ------------------------------------
+
+look at Figures/total_chol_distribution_for_imputation.png
+
+> The distribution of total cholesterol is approximately unimodal and symmetric around the mean of roughly 235 mg/dL with a mild
+right tail extending to around 400 mg/dL. The skewness is modest and the bulk of the distribution is well-captured by the density
+curve. This supports the use of a normal likelihood for the imputation model — the mild right skew is unlikely to cause meaningful
+problems in a Bayesian framework where the posterior is informed by both the likelihood and the prior.
+
+
+print(gelman.diag(posterior_totchol))
+Potential scale reduction factors:
+
+         Point est. Upper C.I.
+beta[1]           1       1.00
+beta[2]           1       1.01
+beta[3]           1       1.00
+beta[4]           1       1.00
+beta[5]           1       1.01
+beta[6]           1       1.01
+beta[7]           1       1.01
+beta[8]           1       1.00
+beta[9]           1       1.01
+beta[10]          1       1.00
+beta[11]          1       1.00
+beta[12]          1       1.00
+beta[13]          1       1.00
+beta[14]          1       1.00
+beta0             1       1.01
+sigma             1       1.00
+
+Multivariate psrf
+
+1.01
+> print(effectiveSize(posterior_totchol))
+ beta[1]  beta[2]  beta[3]  beta[4]  beta[5]  beta[6]  beta[7]  beta[8]  beta[9] beta[10] 
+6090.644 7956.940 8063.709 4360.916 4813.012 2839.041 1452.477 6565.717 2385.058 7500.000 
+beta[11] beta[12] beta[13] beta[14]    beta0    sigma 
+8731.985 4420.987 6291.237 6885.608 1158.041 7302.932
+
+`beta0`=intercept, `beta[1]`=sex, `beta[2]`=age, `beta[3]`=education, `beta[4]`=current_smoker, 
+`beta[5]`=cigs_per_day, `beta[6]`=bp_meds, `beta[7]`=prevalent_stroke, `beta[8]`=prevalent_hyp, 
+`beta[9]`=diabetes, `beta[10]`=bmi, `beta[11]`=heart_rate, `beta[12]`=glucose, `beta[13]`=ten_year_chd,
+ `beta[14]`=pulse_pressure
+
+
+print(summary(posterior_totchol))
+Iterations = 10020:60000
+Thinning interval = 20 
+Number of chains = 3 
+Sample size per chain = 2500 
+
+1. Empirical mean and standard deviation for each variable,
+   plus standard error of the mean:
+
+            Mean     SD Naive SE Time-series SE
+beta[1]  -2.8498 1.6757 0.019349       0.021629
+beta[2]  10.0235 0.9022 0.010418       0.010151
+beta[3]   2.8046 0.7698 0.008889       0.008589
+beta[4]   9.7300 2.3586 0.027235       0.035791
+beta[5]  -2.8640 1.2204 0.014092       0.017636
+beta[6]  26.0717 4.1894 0.048375       0.079990
+beta[7]  49.7292 6.3921 0.073810       0.167664
+beta[8]   6.1780 2.0586 0.023770       0.026042
+beta[9]  27.7351 4.9315 0.056944       0.101250
+beta[10]  3.2707 0.8389 0.009687       0.009687
+beta[11]  3.1343 0.8104 0.009358       0.008761
+beta[12] -3.4115 0.9361 0.010809       0.014113
+beta[13]  7.6296 2.2422 0.025891       0.028307
+beta[14] -0.2812 0.9806 0.011323       0.011841
+beta0    97.8511 7.6177 0.087962       0.224464
+sigma    42.1596 0.5523 0.006378       0.006466
+
+2. Quantiles for each variable:
+
+           2.5%     25%     50%      75%    97.5%
+beta[1]  -6.124 -3.9655 -2.8479  -1.7229   0.4488
+beta[2]   8.236  9.4223 10.0199  10.6226  11.7926
+beta[3]   1.305  2.2850  2.8088   3.3168   4.3268
+beta[4]   5.179  8.1569  9.7251  11.2932  14.4968
+beta[5]  -5.332 -3.6612 -2.8391  -2.0672  -0.4706
+beta[6]  17.990 23.2224 26.0469  28.8604  34.4358
+beta[7]  37.186 45.4120 49.7136  54.0066  62.5776
+beta[8]   2.110  4.8260  6.2006   7.5636  10.1843
+beta[9]  17.976 24.4844 27.7181  30.9842  37.6875
+beta[10]  1.629  2.7066  3.2637   3.8323   4.9192
+beta[11]  1.517  2.5797  3.1426   3.6800   4.7399
+beta[12] -5.232 -4.0514 -3.4085  -2.7725  -1.5788
+beta[13]  3.210  6.1168  7.6189   9.1577  12.0078
+beta[14] -2.191 -0.9464 -0.2702   0.3877   1.6222
+beta0    82.527 92.8268 97.9389 103.0256 112.5345
+sigma    41.090 41.7845 42.1633  42.5244  43.2451
+
+
+>> The imputation model for total cholesterol was well-specified and clinically coherent.
+The strongest predictors were prevalent stroke (beta = 49.7, 95% CrI: 37.2–62.6), diabetes (beta = 27.7, 95% CrI: 18.0–37.7),
+and BP medication use (beta = 26.1, 95% CrI: 18.0–34.4), all showing substantially elevated cholesterol levels 
+consistent with the established literature. Age (beta = 10.0, 95% CrI: 8.2–11.8) and current smoking status (beta = 9.7, 95% CrI: 5.2–14.5) also showed
+meaningful positive associations. Sex (beta = -2.8, 95% CrI: -6.1–0.4) and pulse pressure (beta = -0.3, 95% CrI: -2.2–1.6) showed no
+independent association with total cholesterol after adjusting for other variables. The residual standard deviation of 42.2 mg/dL (95% CrI: 41.1–43.2) 
+was consistent with the observed variability in the training data, suggesting the model captured the main sources of variation adequately for imputation purposes.
+
+
+
+> cat("Imputed train tot_chol values:\n")
+Imputed train tot_chol values:
+> print(imputed_train_totchol)
+[1] 229 218 237 228 230 233
+> cat("\n95% Credible Intervals (train):\n")
+
+95% Credible Intervals (train):
+> print(round(ci_train, 1))
+       [,1]  [,2]  [,3]  [,4]  [,5]  [,6]
+2.5%  149.5 136.4 153.7 145.2 148.7 150.9
+97.5% 312.6 300.4 322.4 310.7 312.2 317.0
+> cat("\nImputed test tot_chol values:\n")
+
+Imputed test tot_chol values:
+> print(imputed_test_totchol)
+[1] 239 253 242
+> cat("\n95% Credible Intervals (test):\n")
+
+95% Credible Intervals (test):
+> print(round(ci_test, 1))
+       [,1]  [,2]  [,3]
+2.5%  155.7 168.5 159.6
+97.5% 321.0 335.3 324.7
