@@ -290,3 +290,23 @@ the typical range seen even in heterozygous familial hypercholesterolemia, canno
 variable in the dataset, and cannot be reliably distinguished from data entry errors. All other continuous variables had extreme values
 considered clinically plausible and were retained. Following outlier removal the analytic dataset comprised 4,176 observations.
 
+------------------------------------------------- Bayesian imputation ----------------------------------------------
+
+# missingness after dropping co-missingness
+ sex age education current_smoker cigs_per_day bp_meds prevalent_stroke prevalent_hyp
+  0   0        75              0           20      43                0             0
+  diabetes tot_chol bmi heart_rate glucose ten_year_chd pulse_pressure
+     0        6     13       0      271            0              0
+
+
+Imputation Order (Least to Most Missing)
+
+tot_chol (n=6) — continuous, normal model
+bmi (n=13) — continuous, normal model
+cigs_per_day (n=20) — continuous, keep current_smoker as key predictor 
+bp_meds (n=43) — binary, logistic model
+education (n=75) — ordinal, ordinal logistic model
+glucose (n=271) — continuous, normal model, last since most missing and benefits from all others being complete
+
+
+state the modeling methods and provide justification (i.e. plot the distribution of each one individually)
