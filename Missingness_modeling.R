@@ -47,7 +47,6 @@ train <- train |>
 test <- test |>
   mutate(across(all_of(cat_vars), ~ as.integer(as.factor(.x)) - 1L))
 
-# Verify: all should show 0 and 1
 train |> select(all_of(cat_vars)) |> 
   summarise(across(everything(), list(min=min, max=max)))
 
@@ -898,12 +897,17 @@ cat("Missing cigs_per_day in train:", sum(is.na(train$cigs_per_day)), "\n")
 cat("Missing cigs_per_day in test:",  sum(is.na(test$cigs_per_day)),  "\n")
 
 
+train <- train |> select(-current_smoker) # no longer needed
+test  <- test  |> select(-current_smoker) 
+
 saveRDS(train, "Data/train.rds")
 saveRDS(test,  "Data/test.rds")
 
-# modeling missingness in bp_meds
+# modeling missingness in bp_meds ----------------------------
 train <- readRDS("Data/train.rds")
 test  <- readRDS("Data/test.rds")
+
+colnames(train)
 
 train |> summarise(across(everything(), ~sum(is.na(.)))) |>
   pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
@@ -912,5 +916,87 @@ train |> summarise(across(everything(), ~sum(is.na(.)))) |>
 test |> summarise(across(everything(), ~sum(is.na(.)))) |>
   pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
   filter(n_missing > 0) |> print()
+
+
+cat("Cross-tabulation: prevalent_hyp vs bp_meds\n")
+table(train$prevalent_hyp, train$bp_meds, useNA = "always")
+
+prop.table(table(train$prevalent_hyp, train$bp_meds), margin = 1)
+
+
+train |>
+  filter(!is.na(bp_meds)) |>
+  group_by(prevalent_hyp) |>
+  summarise(
+    n         = n(),
+    n_bp_meds = sum(bp_meds),
+    prop_bp   = mean(bp_meds)
+  )
+
+
+train |>
+  filter(!is.na(bp_meds)) |>
+  mutate(
+    prevalent_hyp = factor(prevalent_hyp, labels = c("No Hypertension", "Hypertension")),
+    bp_meds       = factor(bp_meds,       labels = c("No BP Meds", "On BP Meds"))
+  ) |>
+  ggplot(aes(x = prevalent_hyp, fill = bp_meds)) +
+  geom_bar(position = "fill", alpha = 0.85, color = "white") +
+  scale_fill_manual(values = c("No BP Meds" = "steelblue", "On BP Meds" = "tomato")) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title    = "BP Medication Use by Hypertension Status",
+    subtitle = "All BP medication users have prevalent hypertension",
+    x        = NULL,
+    y        = "Proportion",
+    fill     = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/bp_meds_vs_prevalent_hyp.png")
+
+
+# Non-hypertensives → 0 (deterministic from perfect separation)
+train$bp_meds[train$prevalent_hyp == 0 & is.na(train$bp_meds)] <- 0
+test$bp_meds[test$prevalent_hyp   == 0 & is.na(test$bp_meds)]  <- 0
+
+# Hypertensives → sample from observed proportion (9.46%)
+set.seed(123)
+n_train_hyp_miss <- sum(train$prevalent_hyp == 1 & is.na(train$bp_meds))
+n_test_hyp_miss  <- sum(test$prevalent_hyp  == 1 & is.na(test$bp_meds))
+
+cat("Hypertensives with missing bp_meds — train:", n_train_hyp_miss, "\n")
+cat("Hypertensives with missing bp_meds — test:",  n_test_hyp_miss,  "\n")
+
+# Store imputed values
+imputed_train_bp <- rbinom(n_train_hyp_miss, size = 1, prob = 0.0946)
+imputed_test_bp  <- rbinom(n_test_hyp_miss,  size = 1, prob = 0.0946)
+
+cat("\nImputed bp_meds values — train:\n")
+print(imputed_train_bp)
+cat("n(0):", sum(imputed_train_bp == 0), "| n(1):", sum(imputed_train_bp == 1), "\n")
+
+cat("\nImputed bp_meds values — test:\n")
+print(imputed_test_bp)
+cat("n(0):", sum(imputed_test_bp == 0), "| n(1):", sum(imputed_test_bp == 1), "\n")
+
+# Assign
+train$bp_meds[train$prevalent_hyp == 1 & is.na(train$bp_meds)] <- imputed_train_bp
+test$bp_meds[test$prevalent_hyp   == 1 & is.na(test$bp_meds)]  <- imputed_test_bp
+
+# Verify
+cat("\nMissing bp_meds in train:", sum(is.na(train$bp_meds)), "\n")
+cat("Missing bp_meds in test:",   sum(is.na(test$bp_meds)),  "\n")
+
+# Save
+saveRDS(train, "Data/train.rds")
+saveRDS(test,  "Data/test.rds")
+
 
 

@@ -621,3 +621,31 @@ colnames(predictors_fit_cigs)
  [5] "prevalent_stroke" "prevalent_hyp"    "diabetes"         "tot_chol"        
  [9] "bmi"              "heart_rate"       "glucose"          "ten_year_chd"    
 [13] "pulse_pressure"  
+
+
+
+bp_meds imputation ------------------------------------
+
+
+cat("Hypertensives with missing bp_meds — train:", n_train_hyp_miss, "\n")
+Hypertensives with missing bp_meds — train: 19 
+> cat("Hypertensives with missing bp_meds — test:",  n_test_hyp_miss,  "\n")
+Hypertensives with missing bp_meds — test: 3 
+> # Store imputed values
+> imputed_train_bp <- rbinom(n_train_hyp_miss, size = 1, prob = 0.0946)
+> imputed_test_bp  <- rbinom(n_test_hyp_miss,  size = 1, prob = 0.0946)
+> cat("\nImputed bp_meds values — train:\n")
+
+Imputed bp_meds values — train:
+> print(imputed_train_bp)
+ [1] 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0
+> cat("n(0):", sum(imputed_train_bp == 0), "| n(1):", sum(imputed_train_bp == 1), "\n")
+n(0): 17 | n(1): 2 
+> cat("\nImputed bp_meds values — test:\n")
+
+Imputed bp_meds values — test:
+> print(imputed_test_bp)
+[1] 1 0 0
+> cat("n(0):", sum(imputed_test_bp == 0), "| n(1):", sum(imputed_test_bp == 1), "\n")
+n(0): 2 | n(1): 1 
+
