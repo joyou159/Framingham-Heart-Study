@@ -191,11 +191,11 @@ print(effectiveSize(posterior_totchol))
 
 posterior_matrix <- as.matrix(posterior_totchol)
 
-params_to_plot <- c("beta[2]", "beta[10]", "beta[12]",
-                    "beta[14]", "beta[8]",  "beta[1]")
+params_to_plot <- c("beta[2]", "beta[6]", "beta[1]",
+                    "beta[10]", "beta[11]", "beta[3]")
 
-labels <- c("Age", "BMI", "Glucose",
-            "Pulse Pressure", "Prev. Hypertension", "Sex")
+labels <- c("Age", "BP Meds", "Sex",
+            "BMI", "Heart Rate", "Education")
 
 posterior_df <- as.data.frame(posterior_matrix[, params_to_plot])
 colnames(posterior_df) <- labels
@@ -210,8 +210,8 @@ posterior_df |>
   facet_wrap(~parameter, scales = "free", ncol = 3) +
   scale_fill_brewer(palette = "Set2") +
   labs(
-    title    = "Posterior Distributions — Selected Predictors of Total Cholesterol",
-    subtitle = "Clinically relevant parameters | Dashed line at zero for reference",
+    title    = "Posterior Distributions — Significant Predictors of Total Cholesterol",
+    subtitle = "95% credible interval excludes zero | Dashed line at zero for reference",
     x        = "Posterior value",
     y        = "Density"
   ) +
@@ -224,7 +224,7 @@ posterior_df |>
     plot.subtitle    = element_text(color = "grey40", size = 10)
   )
 
-ggsave("Figures/Posterior_distributions_log_tot_chol.png")
+ggsave("Figures/posterior_distributions_log_tot_chol.png")
 
 
 # imputing missing data in train and test split
@@ -346,6 +346,246 @@ cat("Missing tot_chol in test:",  sum(is.na(test$tot_chol)),  "\n")
 train |> summarise(across(everything(), ~sum(is.na(.)))) |>
   pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
   filter(n_missing > 0)
+
+
+# data preprocessing 
+
+train_means_bmi <- train |>
+  mutate(across(all_of(log_vars), log)) |>
+  summarise(across(all_of(continuous_vars), ~mean(.x, na.rm = TRUE)))
+
+train_sds_bmi <- train |>
+  mutate(across(all_of(log_vars), log)) |>
+  summarise(across(all_of(continuous_vars), ~sd(.x, na.rm = TRUE)))
+
+train_scaled_bmi <- train |>
+  mutate(across(all_of(log_vars), log)) |>
+  mutate(across(all_of(continuous_vars),
+                ~(.x - train_means_bmi[[cur_column()]]) / train_sds_bmi[[cur_column()]]))
+
+test_scaled_bmi <- test |>
+  mutate(across(all_of(log_vars), log)) |>
+  mutate(across(all_of(continuous_vars),
+                ~(.x - train_means_bmi[[cur_column()]]) / train_sds_bmi[[cur_column()]]))
+
+predictors_train_bmi <- train_scaled_bmi |>
+  select(-bmi) |>
+  as.matrix()
+
+predictors_test_bmi <- test_scaled_bmi |>
+  select(-bmi) |>
+  as.matrix()
+
+# Complete cases for fitting
+complete_rows_bmi  <- complete.cases(predictors_train_bmi) & !is.na(train_scaled_bmi$bmi)
+y_fit_bmi          <- train_scaled_bmi$bmi[complete_rows_bmi]
+predictors_fit_bmi <- predictors_train_bmi[complete_rows_bmi, ]
+
+colnames(predictors_fit_bmi)  
+
+
+cat("y_fit_bmi length:", length(y_fit_bmi), "\n")
+cat("predictors_fit_bmi dim:", dim(predictors_fit_bmi), "\n")
+
+# Missing indices
+train_miss_idx_bmi        <- which(is.na(train_scaled_bmi$bmi))
+predictors_train_miss_bmi <- predictors_train_bmi[train_miss_idx_bmi, ]
+
+test_miss_idx_bmi        <- which(is.na(test_scaled_bmi$bmi))
+
+
+
+cat("Train missing BMI:", length(train_miss_idx_bmi), "\n")
+cat("Test missing BMI:",  length(test_miss_idx_bmi),  "\n") # = 0 (no imputation needed)
+
+
+# JAGS model — BMI imputation
+bmi_model_string <- "
+model {
+  # Likelihood
+  for (i in 1:N) {
+    y[i] ~ dnorm(mu[i], tau)
+    mu[i] <- beta0 + inprod(X[i,], beta[])
+  }
+
+  # Priors
+  beta0 ~ dnorm(0, 0.01)
+
+  for (j in 1:K) {
+    beta[j] ~ dnorm(0, 0.01)
+  }
+
+  tau   ~ dgamma(0.001, 0.001)
+  sigma <- 1 / sqrt(tau)
+}
+"
+
+jags_data_bmi <- list(
+  y = y_fit_bmi,
+  X = predictors_fit_bmi,
+  N = length(y_fit_bmi),
+  K = ncol(predictors_fit_bmi)
+)
+
+bmi_model <- jags.model(
+  textConnection(bmi_model_string),
+  data     = jags_data_bmi,
+  n.chains = 3,
+  n.adapt  = 3000
+)
+
+update(bmi_model, n.iter = 10000)
+
+posterior_bmi <- coda.samples(
+  bmi_model,
+  variable.names = c("beta0", "beta", "sigma"),
+  n.iter = 20000,
+  thin   = 5
+)
+
+# Diagnostics
+cat("\n--- Posterior Summary ---\n")
+print(summary(posterior_bmi))
+
+cat("\nGelman-Rubin Diagnostic:\n")
+print(gelman.diag(posterior_bmi))
+
+cat("\nEffective Sample Sizes:\n")
+print(effectiveSize(posterior_bmi))
+
+
+
+# plotting
+
+posterior_matrix_bmi <- as.matrix(posterior_bmi)
+
+params_to_plot_bmi <- c("beta[8]", "beta[4]", "beta[1]",
+                        "beta[10]", "beta[3]", "beta[9]")
+
+labels_bmi <- c("Prev. Hypertension", "Current Smoker", "Sex",
+                "Total Cholesterol",  "Education",      "Diabetes")
+
+posterior_df_bmi <- as.data.frame(posterior_matrix_bmi[, params_to_plot_bmi])
+colnames(posterior_df_bmi) <- labels_bmi
+
+posterior_df_bmi |>
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+  mutate(parameter = factor(parameter, levels = labels_bmi)) |>
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.75, color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "grey40", linewidth = 0.4) +
+  facet_wrap(~parameter, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title    = "Posterior Distributions — Significant Predictors of BMI",
+    subtitle = "95% credible interval excludes zero | Dashed line at zero for reference",
+    x        = "Posterior value",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "none",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_distributions_log_bmi.png")
+
+
+# data imputation
+beta0_samples_bmi <- posterior_matrix_bmi[, "beta0"]
+beta_samples_bmi  <- posterior_matrix_bmi[, paste0("beta[", 1:14, "]")]
+sigma_samples_bmi <- posterior_matrix_bmi[, "sigma"]
+n_samples_bmi     <- length(beta0_samples_bmi)
+cat("Number of posterior samples:", n_samples_bmi, "\n")
+
+n_train_miss_bmi <- nrow(predictors_train_miss_bmi)
+ppc_train_bmi    <- matrix(NA, nrow = n_samples_bmi, ncol = n_train_miss_bmi)
+
+for (s in 1:n_samples_bmi) {
+  mu_train_bmi       <- beta0_samples_bmi[s] + predictors_train_miss_bmi %*% beta_samples_bmi[s, ]
+  ppc_train_bmi[s, ] <- rnorm(n_train_miss_bmi, mean = mu_train_bmi, sd = sigma_samples_bmi[s])
+}
+
+ppc_train_bmi_orig <- exp(ppc_train_bmi * train_sds_bmi[["bmi"]] + train_means_bmi[["bmi"]])
+
+imputed_train_bmi <- round(colMeans(ppc_train_bmi_orig), 1)
+ci_train_bmi      <- apply(ppc_train_bmi_orig, 2, quantile, probs = c(0.025, 0.975))
+
+cat("Imputed train BMI values (original scale):\n")
+print(imputed_train_bmi)
+cat("\n95% Credible Intervals — train (original scale):\n")
+print(round(ci_train_bmi, 1))
+
+cat("\nImputed BMI range:", range(imputed_train_bmi), "\n")
+cat("Observed BMI range:", range(train$bmi, na.rm = TRUE), "\n")
+
+
+
+set.seed(123)
+sample_idx <- sample(1:n_train_miss_bmi, 6)
+
+plot_data_bmi <- as.data.frame(ppc_train_bmi_orig[, sample_idx]) |>
+  setNames(paste0("Train Obs ", train_miss_idx_bmi[sample_idx])) |>
+  pivot_longer(everything(), names_to = "observation", values_to = "value")
+
+mean_labels_bmi <- plot_data_bmi |>
+  group_by(observation) |>
+  summarise(mean_val = mean(value), .groups = "drop") |>
+  mutate(label = paste0("Mean = ", round(mean_val, 1)))
+
+plot_data_bmi |>
+  ggplot(aes(x = value, fill = observation)) +
+  geom_density(alpha = 0.75, color = "white", linewidth = 0.3) +
+  geom_vline(data = mean_labels_bmi,
+             aes(xintercept = mean_val),
+             linetype = "dashed", color = "grey30", linewidth = 0.5) +
+  geom_text(data = mean_labels_bmi,
+            aes(x = mean_val, y = Inf, label = label),
+            hjust = -0.1, vjust = 1.5,
+            size = 2.8, color = "grey20", inherit.aes = FALSE) +
+  facet_wrap(~observation, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title    = "Posterior Predictive Distributions — Missing BMI (Train)",
+    subtitle = "Random sample of 6 observations | Dashed line = posterior mean",
+    x        = "BMI (kg/m²)",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "none",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 12),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_predictive_distribution_missing_bmi.png")
+
+# saving imputed values
+train$bmi[train_miss_idx_bmi] <- imputed_train_bmi
+
+cat("Missing BMI in train:", sum(is.na(train$bmi)), "\n")
+cat("Missing BMI in test:",  sum(is.na(test$bmi)),  "\n")
+
+saveRDS(train, "Data/train.rds")
+saveRDS(test,  "Data/test.rds")
+
+# modeling missingness in cigs/day -------------------------
+
+train <- readRDS("Data/train.rds")
+test  <- readRDS("Data/test.rds")
+
+
+cat("\nRemaining missingness in train:\n")
+train |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+
 
 
 

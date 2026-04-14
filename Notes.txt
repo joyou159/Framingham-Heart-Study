@@ -424,10 +424,110 @@ Imputed test tot_chol values (original scale):
 
 BMI imputation ------------------------------------
 
-look at Figures/bmi_distribution_for_imputation.png
 
-> The distribution of BMI is unimodal and approximately symmetric around the mean of ~26 kg/m² with a mild right tail 
-extending to around 55 kg/m². There is a small secondary bump around 38-40 reflecting a subgroup of obese patients, but 
-the bulk of the distribution is well-behaved. The normal likelihood is a reasonable approximation here — the mild skew and 
-secondary bump are unlikely to materially affect imputation quality for only 13 missing values.
+Potential scale reduction factors:
+
+         Point est. Upper C.I.
+beta[1]           1          1
+beta[2]           1          1
+beta[3]           1          1
+beta[4]           1          1
+beta[5]           1          1
+beta[6]           1          1
+beta[7]           1          1
+beta[8]           1          1
+beta[9]           1          1
+beta[10]          1          1
+beta[11]          1          1
+beta[12]          1          1
+beta[13]          1          1
+beta[14]          1          1
+beta0             1          1
+sigma             1          1
+
+Multivariate psrf
+
+1
+> cat("\nEffective Sample Sizes:\n")
+
+Effective Sample Sizes:
+> print(effectiveSize(posterior_bmi))
+  beta[1]   beta[2]   beta[3]   beta[4]   beta[5]   beta[6]   beta[7]   beta[8] 
+11098.831 12255.245 11693.360  5964.186  6231.171 12000.000 12352.728 11784.248 
+  beta[9]  beta[10]  beta[11]  beta[12]  beta[13]  beta[14]     beta0     sigma 
+12053.124 12000.000 12802.730 11680.607 12000.000 12274.010  5481.822 12000.000 
+
+ colnames(predictors_fit_bmi)  
+ [1] "sex"              "age"              "education"        "current_smoker"  
+ [5] "cigs_per_day"     "bp_meds"          "prevalent_stroke" "prevalent_hyp"   
+ [9] "diabetes"         "tot_chol"         "heart_rate"       "glucose"         
+[13] "ten_year_chd"     "pulse_pressure" 
+
+
+print(summary(posterior_bmi))
+
+Iterations = 10005:30000
+Thinning interval = 5 
+Number of chains = 3 
+Sample size per chain = 4000 
+
+1. Empirical mean and standard deviation for each variable,
+   plus standard error of the mean:
+
+             Mean      SD  Naive SE Time-series SE
+beta[1]   0.27285 0.03754 0.0003427      0.0003572
+beta[2]  -0.02888 0.02011 0.0001836      0.0001818
+beta[3]  -0.10266 0.01692 0.0001545      0.0001566
+beta[4]  -0.33832 0.05398 0.0004928      0.0007009
+beta[5]   0.02305 0.02803 0.0002559      0.0003551
+beta[6]   0.06919 0.10501 0.0009586      0.0009587
+beta[7]  -0.30357 0.23234 0.0021210      0.0021021
+beta[8]   0.54834 0.04521 0.0004127      0.0004167
+beta[9]   0.24582 0.12325 0.0011252      0.0011239
+beta[10]  0.10312 0.01822 0.0001663      0.0001663
+beta[11]  0.01370 0.01796 0.0001640      0.0001590
+beta[12]  0.01655 0.02022 0.0001846      0.0001873
+beta[13]  0.03000 0.04986 0.0004552      0.0004552
+beta[14]  0.01952 0.02166 0.0001978      0.0001959
+beta0    -0.03759 0.04264 0.0003893      0.0005768
+sigma     0.92061 0.01214 0.0001109      0.0001109
+
+2. Quantiles for each variable:
+
+              2.5%       25%      50%       75%    97.5%
+beta[1]   0.200682  0.247541  0.27293  0.298219  0.34580
+beta[2]  -0.067697 -0.042792 -0.02884 -0.015024  0.01008
+beta[3]  -0.136266 -0.113945 -0.10277 -0.091246 -0.06949
+beta[4]  -0.443931 -0.374246 -0.33832 -0.301939 -0.23472
+beta[5]  -0.031631  0.004134  0.02298  0.042141  0.07789
+beta[6]  -0.139915 -0.002139  0.07044  0.141003  0.27238
+beta[7]  -0.761830 -0.460453 -0.30094 -0.146759  0.14817
+beta[8]   0.459555  0.517787  0.54785  0.578801  0.63623
+beta[9]   0.002113  0.163898  0.24634  0.329318  0.48719
+beta[10]  0.067194  0.091084  0.10307  0.115187  0.13965
+beta[11] -0.021245  0.001426  0.01361  0.025728  0.04939
+beta[12] -0.023091  0.002985  0.01645  0.030263  0.05616
+beta[13] -0.068901 -0.003052  0.03007  0.063569  0.12906
+beta[14] -0.023042  0.004825  0.01953  0.034280  0.06267
+beta0    -0.120201 -0.066569 -0.03755 -0.008385  0.04656
+sigma     0.897272  0.912467  0.92043  0.928644  0.94461
+
+cat("Imputed train BMI values (original scale):\n")
+Imputed train BMI values (original scale):
+> print(imputed_train_bmi)
+ [1] 24.5 25.5 26.4 24.5 24.1 24.8 24.9 23.8 24.5 26.2 30.8 24.8 28.3
+> cat("\n95% Credible Intervals — train (original scale):\n")
+
+95% Credible Intervals — train (original scale):
+> print(round(ci_train_bmi, 1))
+      [,1] [,2] [,3] [,4] [,5] [,6] [,7] [,8] [,9] [,10] [,11] [,12] [,13]
+2.5%  18.5 19.2 20.0 18.3 18.1 18.5 18.6 17.8 18.2  19.4  23.0  18.7  21.2
+97.5% 32.1 33.1 34.5 32.0 31.6 32.3 32.6 31.1 32.2  34.6  40.5  32.5  36.6
+> cat("\nImputed BMI range:", range(imputed_train_bmi), "\n")
+
+Imputed BMI range: 23.8 30.8 
+> cat("Observed BMI range:", range(train$bmi, na.rm = TRUE), "\n")
+Observed BMI range: 15.54 56.8 
+
+
 
