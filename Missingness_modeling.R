@@ -586,6 +586,331 @@ train |> summarise(across(everything(), ~sum(is.na(.)))) |>
   pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
   filter(n_missing > 0) |> print()
 
+# How many smokers report 0?
+train |>
+  filter(current_smoker == 1) |>
+  count(cigs_per_day == 0)
 
+train |>
+  filter(current_smoker == 1) |>
+  ggplot(aes(x = cigs_per_day)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of cigs/day among smokers",
+       x = "Cigarettes per day", y = "Count") +
+  theme_minimal()
+
+# Non-smokers: assign 0 directly
+train$cigs_per_day[train$current_smoker == 0 & is.na(train$cigs_per_day)] <- 0
+test$cigs_per_day[test$current_smoker  == 0 & is.na(test$cigs_per_day)]  <- 0
+
+cat("Missing cigs_per_day after zero-fill:\n")
+cat("Train:", sum(is.na(train$cigs_per_day)), "\n")
+cat("Test: ", sum(is.na(test$cigs_per_day)),  "\n")
+
+train |>
+  filter(is.na(cigs_per_day)) |>
+  count(current_smoker)
+
+test |>
+  filter(is.na(cigs_per_day)) |>
+  count(current_smoker)
+
+
+
+# Subset to smokers only
+train_smokers <- train |> filter(current_smoker == 1)
+test_smokers  <- test  |> filter(current_smoker == 1)
+
+
+# Scale continuous predictors
+continuous_vars_cigs <- c("age", "tot_chol", "pulse_pressure", 
+                          "bmi", "heart_rate", "glucose")
+
+log_vars_cigs <- c("glucose", "bmi", "pulse_pressure", "tot_chol", "heart_rate")
+
+train_means_cigs <- train_smokers |>
+  mutate(across(all_of(log_vars_cigs), log)) |>
+  summarise(across(all_of(continuous_vars_cigs), ~mean(.x, na.rm = TRUE)))
+
+train_sds_cigs <- train_smokers |>
+  mutate(across(all_of(log_vars_cigs), log)) |>
+  summarise(across(all_of(continuous_vars_cigs), ~sd(.x, na.rm = TRUE)))
+
+train_smokers_scaled <- train_smokers |>
+  mutate(across(all_of(log_vars_cigs), log)) |>
+  mutate(across(all_of(continuous_vars_cigs),
+                ~(.x - train_means_cigs[[cur_column()]]) / train_sds_cigs[[cur_column()]]))
+
+test_smokers_scaled <- test_smokers |>
+  mutate(across(all_of(log_vars_cigs), log)) |>
+  mutate(across(all_of(continuous_vars_cigs),
+                ~(.x - train_means_cigs[[cur_column()]]) / train_sds_cigs[[cur_column()]]))
+
+
+# JAGS data preparation
+predictors_train_cigs <- train_smokers_scaled |>
+  select(-cigs_per_day, -current_smoker) |>  
+  as.matrix()
+
+predictors_test_cigs <- test_smokers_scaled |>
+  select(-cigs_per_day, -current_smoker) |>
+  as.matrix()
+
+
+complete_rows_cigs  <- complete.cases(predictors_train_cigs) & 
+  !is.na(train_smokers_scaled$cigs_per_day)
+
+y_fit_cigs          <- train_smokers_scaled$cigs_per_day[complete_rows_cigs]
+predictors_fit_cigs <- predictors_train_cigs[complete_rows_cigs, ]
+
+cat("y_fit_cigs length:", length(y_fit_cigs), "\n")
+cat("predictors_fit_cigs dim:", dim(predictors_fit_cigs), "\n")
+cat("Columns:", colnames(predictors_fit_cigs), "\n")
+
+train_miss_idx_cigs        <- which(is.na(train_smokers_scaled$cigs_per_day))
+predictors_train_miss_cigs <- predictors_train_cigs[train_miss_idx_cigs, ]
+
+test_miss_idx_cigs        <- which(is.na(test_smokers_scaled$cigs_per_day))
+predictors_test_miss_cigs <- predictors_test_cigs[test_miss_idx_cigs, ]
+
+cat("Train missing cigs_per_day:", length(train_miss_idx_cigs), "\n")
+cat("Test missing cigs_per_day:",  length(test_miss_idx_cigs),  "\n")
+
+colnames(predictors_fit_cigs)
+
+# model definition in JAGS
+cigs_model_string <- "
+model {
+  # Likelihood — Negative Binomial
+  for (i in 1:N) {
+    y[i] ~ dnegbin(p[i], r)
+    p[i] <- r / (r + lambda[i])
+    log(lambda[i]) <- beta0 + inprod(X[i,], beta[])
+  }
+
+  # Priors
+  beta0 ~ dnorm(0, 0.01)
+
+  for (j in 1:K) {
+    beta[j] ~ dnorm(0, 0.01)
+  }
+
+  # Dispersion parameter
+  r ~ dgamma(0.01, 0.01)
+}
+"
+
+jags_data_cigs <- list(
+  y = as.integer(y_fit_cigs),
+  X = predictors_fit_cigs,
+  N = length(y_fit_cigs),
+  K = ncol(predictors_fit_cigs)
+)
+
+cigs_model <- jags.model(
+  textConnection(cigs_model_string),
+  data     = jags_data_cigs,
+  n.chains = 3,
+  n.adapt  = 3000
+)
+
+update(cigs_model, n.iter = 10000)
+
+posterior_cigs <- coda.samples(
+  cigs_model,
+  variable.names = c("beta0", "beta", "r"),
+  n.iter = 15000,
+  thin   = 5
+)
+
+# Diagnostics
+cat("\n--- Posterior Summary ---\n")
+print(summary(posterior_cigs))
+
+cat("\nGelman-Rubin Diagnostic:\n")
+print(gelman.diag(posterior_cigs))
+
+cat("\nEffective Sample Sizes:\n")
+print(effectiveSize(posterior_cigs))
+
+# Six significant predictors (95% CI excludes zero)
+params_to_plot_cigs <- c("beta[1]", "beta[2]", "beta[3]",
+                         "beta[10]", "beta[11]", "beta[12]")
+
+labels_cigs <- c("Sex", "Age", "Education",
+                 "Heart Rate", "Glucose", "Ten Year CHD")
+
+posterior_df_cigs <- as.data.frame(posterior_matrix_cigs[, params_to_plot_cigs])
+colnames(posterior_df_cigs) <- labels_cigs
+
+posterior_df_cigs |>
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+  mutate(parameter = factor(parameter, levels = labels_cigs)) |>
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.75, color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "grey40", linewidth = 0.4) +
+  facet_wrap(~parameter, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title    = "Posterior Distributions — Significant Predictors of Cigs/Day",
+    subtitle = "Negative Binomial model | 95% CI excludes zero | Dashed line at zero",
+    x        = "Posterior value",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "none",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_distributions_cigs_per_day.png")
+
+#  Dispersion parameter r alone
+data.frame(r = posterior_matrix_cigs[, "r"]) |>
+  ggplot(aes(x = r)) +
+  geom_density(fill = "coral", alpha = 0.75, color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = mean(posterior_matrix_cigs[, "r"]),
+             linetype = "dashed", color = "grey30", linewidth = 0.5) +
+  annotate("text",
+           x    = mean(posterior_matrix_cigs[, "r"]),
+           y    = Inf,
+           label = paste0("Mean = ", round(mean(posterior_matrix_cigs[, "r"]), 2)),
+           hjust = -0.1, vjust = 1.5, size = 3.5, color = "grey20") +
+  labs(
+    title    = "Posterior Distribution — Dispersion Parameter (r)",
+    subtitle = "Negative Binomial model | Dashed line = posterior mean",
+    x        = "r",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_distribution_dispersion_r_cigs.png")
+
+
+
+# Posterior samples
+beta0_samples_cigs <- posterior_matrix_cigs[, "beta0"]
+beta_samples_cigs  <- posterior_matrix_cigs[, paste0("beta[", 1:13, "]")]
+r_samples_cigs     <- posterior_matrix_cigs[, "r"]
+n_samples_cigs     <- length(beta0_samples_cigs)
+cat("Number of posterior samples:", n_samples_cigs, "\n")
+
+# Posterior predictive — train missing
+n_train_miss_cigs  <- nrow(predictors_train_miss_cigs)
+ppc_train_cigs     <- matrix(NA, nrow = n_samples_cigs, ncol = n_train_miss_cigs)
+
+for (s in 1:n_samples_cigs) {
+  lambda_train        <- exp(beta0_samples_cigs[s] + predictors_train_miss_cigs %*% beta_samples_cigs[s, ])
+  ppc_train_cigs[s, ] <- rnbinom(n_train_miss_cigs, size = r_samples_cigs[s], mu = lambda_train)
+}
+
+# Posterior predictive — test missing
+n_test_miss_cigs  <- nrow(predictors_test_miss_cigs)
+ppc_test_cigs     <- matrix(NA, nrow = n_samples_cigs, ncol = n_test_miss_cigs)
+
+for (s in 1:n_samples_cigs) {
+  lambda_test        <- exp(beta0_samples_cigs[s] + predictors_test_miss_cigs %*% beta_samples_cigs[s, ])
+  ppc_test_cigs[s, ] <- rnbinom(n_test_miss_cigs, size = r_samples_cigs[s], mu = lambda_test)
+}
+
+# Posterior summary
+imputed_train_cigs <- round(colMeans(ppc_train_cigs))
+imputed_test_cigs  <- round(colMeans(ppc_test_cigs))
+
+ci_train_cigs <- apply(ppc_train_cigs, 2, quantile, probs = c(0.025, 0.975))
+ci_test_cigs  <- apply(ppc_test_cigs,  2, quantile, probs = c(0.025, 0.975))
+
+cat("Imputed train cigs/day:\n")
+print(imputed_train_cigs)
+cat("\n95% Credible Intervals — train:\n")
+print(round(ci_train_cigs, 1))
+
+cat("\nImputed test cigs/day:\n")
+print(imputed_test_cigs)
+cat("\n95% Credible Intervals — test:\n")
+print(round(ci_test_cigs, 1))
+
+
+set.seed(123)
+sample_idx_train <- sample(1:n_train_miss_cigs, 3)
+sample_idx_test  <- sample(1:n_test_miss_cigs,  3)
+
+plot_data_cigs <- bind_rows(
+  as.data.frame(ppc_train_cigs[, sample_idx_train]) |>
+    setNames(paste0("Train Obs ", train_miss_idx_cigs[sample_idx_train])) |>
+    pivot_longer(everything(), names_to = "observation", values_to = "value") |>
+    mutate(set = "Train"),
+  
+  as.data.frame(ppc_test_cigs[, sample_idx_test]) |>
+    setNames(paste0("Test Obs ", test_miss_idx_cigs[sample_idx_test])) |>
+    pivot_longer(everything(), names_to = "observation", values_to = "value") |>
+    mutate(set = "Test")
+)
+
+mean_labels_cigs <- plot_data_cigs |>
+  group_by(observation, set) |>
+  summarise(mean_val = mean(value), .groups = "drop") |>
+  mutate(label = paste0("Mean = ", round(mean_val, 1)))
+
+plot_data_cigs |>
+  ggplot(aes(x = value, fill = set)) +
+  geom_histogram(bins = 30, alpha = 0.75, color = "white") +
+  geom_vline(data = mean_labels_cigs,
+             aes(xintercept = mean_val),
+             linetype = "dashed", color = "grey30", linewidth = 0.5) +
+  geom_text(data = mean_labels_cigs,
+            aes(x = mean_val, y = Inf, label = label),
+            hjust = -0.1, vjust = 1.5,
+            size = 2.8, color = "grey20", inherit.aes = FALSE) +
+  facet_wrap(~observation, scales = "free", ncol = 3) +
+  scale_fill_manual(values = c("Train" = "steelblue", "Test" = "tomato")) +
+  labs(
+    title    = "Posterior Predictive Distributions — Missing Cigs/Day",
+    subtitle = "Negative Binomial model | 3 train and 3 test observations | Dashed line = posterior mean",
+    x        = "Cigarettes per Day",
+    y        = "Count",
+    fill     = "Dataset"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "bottom",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 12),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_predictive_distribution_missing_cigs_per_day.png")
+
+train$cigs_per_day[train$current_smoker == 1 & is.na(train$cigs_per_day)] <- imputed_train_cigs
+test$cigs_per_day[test$current_smoker == 1 & is.na(test$cigs_per_day)] <- imputed_test_cigs
+
+cat("Missing cigs_per_day in train:", sum(is.na(train$cigs_per_day)), "\n")
+cat("Missing cigs_per_day in test:",  sum(is.na(test$cigs_per_day)),  "\n")
+
+
+saveRDS(train, "Data/train.rds")
+saveRDS(test,  "Data/test.rds")
+
+# modeling missingness in bp_meds
+train <- readRDS("Data/train.rds")
+test  <- readRDS("Data/test.rds")
+
+train |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+
+test |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
 
 
