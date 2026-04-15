@@ -75,5 +75,9 @@ bind_rows(
 
 ggsave("Figures/categorical_distributions_after_imputation.png")
 
+cat("Train — prevalent_stroke:\n")
+train |> count(prevalent_stroke) |> mutate(prop = round(n / sum(n), 3)) |> print()
 
+cat("\nTest — prevalent_stroke:\n")
+test |> count(prevalent_stroke) |> mutate(prop = round(n / sum(n), 3)) |> print()
 
