@@ -563,7 +563,7 @@ as.data.frame(beta_mat2) |>
   facet_wrap(~ parameter, scales = "free", ncol = 3) +
   scale_fill_brewer(palette = "Set2") +
   labs(
-    title    = "Posterior Distributions of β — Model 2",
+    title    = "Posterior Distributions — Model 2",
     subtitle = "age + sex + cigs_per_day + prevalent_hyp + pulse_pressure + glucose",
     x        = "β value", y = "Density"
   ) +
