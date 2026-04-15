@@ -1192,3 +1192,18 @@ DIC Model 2:
 Mean deviance:  2510 
 penalty 7.001 
 Penalized deviance: 2517 
+
+
+# model 2 evaluation on test split 
+
+print(metrics_df)
+             Metric  Value
+1               AUC 0.6976
+2 Optimal Threshold 0.1411
+3          Accuracy 0.6603
+4 Balanced Accuracy 0.6662
+5       Sensitivity 0.6746
+6       Specificity 0.6577
+7    Pos Pred Value 0.2591
+8    Neg Pred Value 0.9193
+9             Kappa 0.2003
