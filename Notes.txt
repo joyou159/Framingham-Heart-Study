@@ -862,3 +862,172 @@ sigma     0.81464  0.8284317  0.83564  0.8431090  0.85736
  [5] "bp_meds"          "prevalent_stroke" "prevalent_hyp"    "diabetes"        
  [9] "tot_chol"         "bmi"              "heart_rate"       "ten_year_chd"    
 [13] "pulse_pressure" 
+
+
+------------------------------------------------- Bayesian Modeling of 10-year Risk of Developing CHD  ----------------------------------------------
+
+> det(t(X_train) %*% X_train)
+[1] 1.075349e+39
+> det(t(X_test) %*% X_test)
+[1] 1.646345e+31
+
+Both determinants are large and positive, which means:
+
+1. No perfect multicollinearity — no predictor is an exact linear combination of others.
+2. X'X is invertible — the design matrix has full column rank (rank = 13).
+3. Well-conditioned for estimation — coefficients are identifiable.
+
+
+ Feature selection using SSVS --------------------------------------
+
+ # Diagnostics
+> cat("\n--- Posterior Summary ---\n")
+
+--- Posterior Summary ---
+> print(summary(ssvs_samples))
+
+Iterations = 13005:33000
+Thinning interval = 5 
+Number of chains = 3 
+Sample size per chain = 4000 
+
+1. Empirical mean and standard deviation for each variable,
+   plus standard error of the mean:
+
+                Mean       SD  Naive SE Time-series SE
+alpha     -2.4048071  0.09973 0.0009104      0.0013031
+beta[1]    0.5621012  0.06061 0.0005533      0.0006151
+beta[2]    0.2945909  0.05221 0.0004766      0.0005070
+beta[3]    0.0482944  0.05544 0.0005061      0.0007685
+beta[4]    0.2327967  0.07207 0.0006579      0.0009715
+beta[5]    0.0218124  0.03761 0.0003434      0.0005268
+beta[6]    0.0019818  0.02705 0.0002469      0.0002517
+beta[7]    0.1126683  0.07110 0.0006491      0.0014460
+beta[8]    0.5571461  0.11323 0.0010336      0.0013244
+beta[9]   -0.0008596  0.02622 0.0002393      0.0002572
+beta[10]   0.1356249  0.21192 0.0019346      0.0032454
+beta[11]   0.2209846  0.38284 0.0034948      0.0054251
+beta[12]   0.4527393  0.13241 0.0012087      0.0017889
+beta[13]   0.2285270  0.31007 0.0028305      0.0066259
+gamma[1]   0.9851667  0.12089 0.0011036      0.0047020
+gamma[2]   0.9750000  0.15613 0.0014253      0.0071184
+gamma[3]   0.2975833  0.45721 0.0041738      0.0061461
+gamma[4]   0.9365000  0.24387 0.0022262      0.0081246
+gamma[5]   0.1426667  0.34975 0.0031927      0.0038260
+gamma[6]   0.0718333  0.25822 0.0023572      0.0023584
+gamma[7]   0.6611667  0.47333 0.0043209      0.0102103
+gamma[8]   0.9845833  0.12321 0.0011247      0.0052388
+gamma[9]   0.0700833  0.25530 0.0023305      0.0023704
+gamma[10]  0.4252500  0.49440 0.0045132      0.0083428
+gamma[11]  0.4880000  0.49988 0.0045632      0.0085480
+gamma[12]  0.9730000  0.16209 0.0014797      0.0065087
+gamma[13]  0.5220833  0.49953 0.0045601      0.0109639
+tau       21.8549968 13.15964 0.1201306      0.2309877
+
+2. Quantiles for each variable:
+
+               2.5%        25%        50%      75%    97.5%
+alpha     -2.603277 -2.4705724 -2.4035327 -2.33808 -2.21314
+beta[1]    0.446368  0.5201572  0.5621814  0.60320  0.67908
+beta[2]    0.192587  0.2589676  0.2949353  0.32941  0.39801
+beta[3]   -0.021267  0.0090833  0.0304117  0.07703  0.18436
+beta[4]    0.065970  0.1893955  0.2360048  0.28086  0.36578
+beta[5]   -0.031281 -0.0013480  0.0146594  0.03514  0.12422
+beta[6]   -0.051299 -0.0135847  0.0015360  0.01665  0.05875
+beta[7]   -0.007525  0.0483558  0.1212959  0.16728  0.23871
+beta[8]    0.333870  0.4813778  0.5587450  0.63260  0.77945
+beta[9]   -0.055726 -0.0152368 -0.0003069  0.01419  0.04902
+beta[10]  -0.073911 -0.0034410  0.0251846  0.26355  0.65935
+beta[11]  -0.279120 -0.0072485  0.0244417  0.43123  1.18006
+beta[12]   0.188702  0.3684797  0.4528455  0.54179  0.70901
+beta[13]  -0.118360 -0.0009132  0.0494760  0.45527  0.93619
+gamma[1]   1.000000  1.0000000  1.0000000  1.00000  1.00000
+gamma[2]   0.975000  1.0000000  1.0000000  1.00000  1.00000
+gamma[3]   0.000000  0.0000000  0.0000000  1.00000  1.00000
+gamma[4]   0.000000  1.0000000  1.0000000  1.00000  1.00000
+gamma[5]   0.000000  0.0000000  0.0000000  0.00000  1.00000
+gamma[6]   0.000000  0.0000000  0.0000000  0.00000  1.00000
+gamma[7]   0.000000  0.0000000  1.0000000  1.00000  1.00000
+gamma[8]   1.000000  1.0000000  1.0000000  1.00000  1.00000
+gamma[9]   0.000000  0.0000000  0.0000000  0.00000  1.00000
+gamma[10]  0.000000  0.0000000  0.0000000  1.00000  1.00000
+gamma[11]  0.000000  0.0000000  0.0000000  1.00000  1.00000
+gamma[12]  0.000000  1.0000000  1.0000000  1.00000  1.00000
+gamma[13]  0.000000  0.0000000  1.0000000  1.00000  1.00000
+tau        0.895534 12.3995839 19.8383126 29.24585 53.19190
+
+> cat("\nGelman-Rubin Diagnostic:\n")
+
+Gelman-Rubin Diagnostic:
+> gelman.diag(ssvs_samples)
+Potential scale reduction factors:
+
+          Point est. Upper C.I.
+alpha           1.00       1.00
+beta[1]         1.00       1.00
+beta[2]         1.00       1.00
+beta[3]         1.00       1.00
+beta[4]         1.00       1.00
+beta[5]         1.00       1.00
+beta[6]         1.00       1.00
+beta[7]         1.00       1.00
+beta[8]         1.00       1.00
+beta[9]         1.00       1.00
+beta[10]        1.00       1.00
+beta[11]        1.00       1.00
+beta[12]        1.00       1.00
+beta[13]        1.00       1.00
+gamma[1]        1.02       1.03
+gamma[2]        1.02       1.02
+gamma[3]        1.00       1.00
+gamma[4]        1.00       1.00
+gamma[5]        1.00       1.00
+gamma[6]        1.00       1.00
+gamma[7]        1.00       1.00
+gamma[8]        1.02       1.02
+gamma[9]        1.00       1.00
+gamma[10]       1.00       1.00
+gamma[11]       1.00       1.00
+gamma[12]       1.01       1.01
+gamma[13]       1.00       1.00
+tau             1.00       1.00
+
+Multivariate psrf
+
+1
+> cat("\nEffective Sample Sizes:\n")
+
+Effective Sample Sizes:
+> print(effectiveSize(ssvs_samples))
+     alpha    beta[1]    beta[2]    beta[3]    beta[4]    beta[5]    beta[6]    beta[7] 
+ 5874.5352  9751.9992 10600.1621  5218.1270  5537.3549  5148.0952 11562.9342  2428.1556 
+   beta[8]    beta[9]   beta[10]   beta[11]   beta[12]   beta[13]   gamma[1]   gamma[2] 
+ 7309.1780 10403.7030  4300.5512  5130.9113  5507.7962  2197.4487   753.1769   540.9310 
+  gamma[3]   gamma[4]   gamma[5]   gamma[6]   gamma[7]   gamma[8]   gamma[9]  gamma[10] 
+ 5538.5691  1042.2859  8360.9222 11990.0542  2194.1986   657.4286 11657.1277  3515.1023 
+ gamma[11]  gamma[12]  gamma[13]        tau 
+ 3516.1879   673.7567  2103.6785  3502.6900 
+
+
+  data.frame(variable = colnames(X_train), PIP = pip)
+                  variable        PIP
+gamma[1]               age 0.98516667
+gamma[2]      cigs_per_day 0.97500000
+gamma[3]          tot_chol 0.29758333
+gamma[4]    pulse_pressure 0.93650000
+gamma[5]               bmi 0.14266667
+gamma[6]        heart_rate 0.07183333
+gamma[7]           glucose 0.66116667
+gamma[8]               sex 0.98458333
+gamma[9]         education 0.07008333
+gamma[10]          bp_meds 0.42525000
+gamma[11] prevalent_stroke 0.48800000
+gamma[12]    prevalent_hyp 0.97300000
+gamma[13]         diabetes 0.52208333
+
+# the most 2 models common
+1101001100110 age + cigs_per_day + pulse_pressure + glucose + sex + prevalent_stroke + prevalent_hyp
+1101001100010                    age + cigs_per_day + pulse_pressure + glucose + sex + prevalent_hyp
+              proportion
+1101001100110 0.05508333
+1101001100010 0.05450000
