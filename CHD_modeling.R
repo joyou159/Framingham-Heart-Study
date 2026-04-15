@@ -1,7 +1,8 @@
 library(tidyverse)
 library(rjags)
 library(coda)
-
+library(caret)
+library(pROC)
 
 # Data loading and some sanity checks ----------------------------------------
 
@@ -578,3 +579,129 @@ as.data.frame(beta_mat2) |>
 
 ggsave("Figures/beta_posterior_model2.png", width = 10, height = 6)
 
+
+
+# Posterior Predictive on Test Set -------------------------------------
+
+beta_mat2 <- do.call(rbind, lapply(samps2, function(ch) ch[, grep("^beta", colnames(ch))]))
+
+X_m2_test <- X_test[, c("age", "sex", "cigs_per_day", "prevalent_hyp", "pulse_pressure", "glucose")]
+
+# For each posterior draw, compute pi for every test observation
+# beta_mat2: (n_samples x 7), X_m2_test: (N_test x 6)
+# Design matrix with intercept
+X_test_design <- cbind(1, X_m2_test)  # N_test x 7
+
+# Matrix of predicted probabilities: n_samples x N_test
+logit_mat  <- beta_mat2 %*% t(X_test_design)
+pi_mat     <- 1 / (1 + exp(-logit_mat))   # n_samples x N_test
+
+dim(pi_mat) # samples x N_test
+
+pi_mean    <- colMeans(pi_mat)
+
+
+# Results Reporting — Model 2 ------------------------------------
+
+roc_obj    <- roc(Y_test, pi_mean)
+best_thresh <- coords(roc_obj, "best", ret = "threshold", best.method = "youden")
+
+Y_hat_opt <- ifelse(pi_mean >= best_thresh$threshold, 1, 0)
+
+cm_opt <- confusionMatrix(
+  factor(Y_hat_opt, levels = c(0, 1)),
+  factor(Y_test,    levels = c(0, 1)),
+  positive = "1"
+)
+print(cm_opt)
+
+# Summary Metrics Table
+metrics_df <- data.frame(
+  Metric = c("AUC", "Optimal Threshold", "Accuracy", "Balanced Accuracy",
+             "Sensitivity", "Specificity",
+             "Pos Pred Value", "Neg Pred Value", "Kappa"),
+  Value = round(c(
+    auc(roc_obj),
+    best_thresh$threshold,
+    cm_opt$overall["Accuracy"],
+    cm_opt$byClass["Balanced Accuracy"],
+    cm_opt$byClass["Sensitivity"],
+    cm_opt$byClass["Specificity"],
+    cm_opt$byClass["Pos Pred Value"],
+    cm_opt$byClass["Neg Pred Value"],
+    cm_opt$overall["Kappa"]
+  ), 4)
+)
+print(metrics_df)
+
+# ROC Curve
+ggroc(roc_obj, color = "steelblue", linewidth = 0.8) +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed", color = "grey50") +
+  annotate("text", x = 0.3, y = 0.2,
+           label = paste0("AUC = ", round(auc(roc_obj), 4)),
+           size = 4.5, color = "steelblue") +
+  labs(
+    title    = "ROC Curve — Model 2",
+    subtitle = paste0("Optimal threshold (Youden's J) = ", round(best_thresh$threshold, 4)),
+    x        = "Specificity",
+    y        = "Sensitivity"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+ggsave("Figures/roc_model2.png", width = 7, height = 5)
+
+# Confusion Matrix Heatmap
+cm_df <- as.data.frame(cm_opt$table)
+colnames(cm_df) <- c("Predicted", "Actual", "Freq")
+
+ggplot(cm_df, aes(x = Actual, y = Predicted, fill = Freq)) +
+  geom_tile(color = "white", linewidth = 0.8) +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(
+    title    = "Confusion Matrix — Model 2",
+    subtitle = paste0("Threshold = ", round(best_thresh$threshold, 4),
+                      " (Youden's J)"),
+    x        = "Actual",
+    y        = "Predicted",
+    fill     = "Count"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10),
+    panel.grid       = element_blank(),
+    legend.position  = "right"
+  )
+ggsave("Figures/confusion_matrix_model2.png", width = 6, height = 5)
+
+
+# Predicted Probability Distribution by True Class
+data.frame(pi_mean = pi_mean, Y_test = factor(Y_test, labels = c("No CHD", "CHD"))) |>
+  ggplot(aes(x = pi_mean, fill = Y_test)) +
+  geom_density(alpha = 0.5, linewidth = 0.7) +
+  geom_vline(xintercept = best_thresh$threshold,
+             linetype = "dashed", color = "grey30", linewidth = 0.6) +
+  scale_fill_manual(values = c("No CHD" = "steelblue", "CHD" = "tomato")) +
+  annotate("text", x = best_thresh$threshold + 0.02, y = 8,
+           label = paste0("t = ", round(best_thresh$threshold, 4)),
+           size = 3.5, color = "grey30", hjust = 0) +
+  labs(
+    title    = "Posterior Predictive Probabilities by True Class — Model 2",
+    subtitle = "Dashed line at optimal threshold",
+    x        = "Posterior Mean P(Y = 1)",
+    y        = "Density",
+    fill     = "True Class"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+ggsave("Figures/pred_prob_by_class_model2.png", width = 8, height = 5)
