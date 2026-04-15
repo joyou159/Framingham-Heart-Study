@@ -1000,3 +1000,472 @@ saveRDS(test,  "Data/test.rds")
 
 
 
+# modeling missingness in education ----------------------------
+train <- readRDS("Data/train.rds")
+test  <- readRDS("Data/test.rds")
+
+colnames(train)
+
+train |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+
+test |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+
+
+table(train$education, useNA = "always")
+table(test$education,  useNA = "always")
+
+
+# Proportions
+train |>
+  filter(!is.na(education)) |>
+  count(education) |>
+  mutate(prop = round(n / sum(n), 3))
+
+# Missingness rate
+cat("Missing education in train:", sum(is.na(train$education)), "/", nrow(train), "\n")
+cat("Missing education in test:",  sum(is.na(test$education)),  "/", nrow(test),  "\n")
+
+
+# Scaling
+continuous_vars_edu <- c("age", "cigs_per_day", "tot_chol",
+                         "pulse_pressure", "bmi", "heart_rate", "glucose")
+
+log_vars_edu <- c("glucose", "bmi", "pulse_pressure", "tot_chol", "heart_rate")
+
+train_means_edu <- train |>
+  mutate(across(all_of(log_vars_edu), log)) |>
+  summarise(across(all_of(continuous_vars_edu), ~mean(.x, na.rm = TRUE)))
+
+train_sds_edu <- train |>
+  mutate(across(all_of(log_vars_edu), log)) |>
+  summarise(across(all_of(continuous_vars_edu), ~sd(.x, na.rm = TRUE)))
+
+train_scaled_edu <- train |>
+  mutate(across(all_of(log_vars_edu), log)) |>
+  mutate(across(all_of(continuous_vars_edu),
+                ~(.x - train_means_edu[[cur_column()]]) / train_sds_edu[[cur_column()]]))
+
+test_scaled_edu <- test |>
+  mutate(across(all_of(log_vars_edu), log)) |>
+  mutate(across(all_of(continuous_vars_edu),
+                ~(.x - train_means_edu[[cur_column()]]) / train_sds_edu[[cur_column()]]))
+
+# Design matrices
+predictors_train_edu <- train_scaled_edu |>
+  select(-education) |>
+  as.matrix()
+
+predictors_test_edu <- test_scaled_edu |>
+  select(-education) |>
+  as.matrix()
+
+#  Complete cases
+complete_rows_edu  <- complete.cases(predictors_train_edu) & !is.na(train_scaled_edu$education)
+y_fit_edu          <- train_scaled_edu$education[complete_rows_edu] + 1L  # JAGS needs 1-indexed
+predictors_fit_edu <- predictors_train_edu[complete_rows_edu, ]
+
+cat("y_fit_edu length:", length(y_fit_edu), "\n")
+cat("predictors_fit_edu dim:", dim(predictors_fit_edu), "\n")
+cat("Education levels:", table(y_fit_edu), "\n")
+
+# Missing indices
+train_miss_idx_edu        <- which(is.na(train_scaled_edu$education))
+predictors_train_miss_edu <- predictors_train_edu[train_miss_idx_edu, ]
+
+test_miss_idx_edu        <- which(is.na(test_scaled_edu$education))
+predictors_test_miss_edu <- predictors_test_edu[test_miss_idx_edu, ]
+
+cat("Train missing education:", length(train_miss_idx_edu), "\n")
+cat("Test missing education:",  length(test_miss_idx_edu),  "\n")
+
+
+# model definition 
+
+edu_model_string <- "
+model {
+  # Likelihood
+  for (i in 1:N) {
+    y[i] ~ dcat(p[i, ])
+
+    # Cumulative probabilities
+    for (k in 1:K_ord) {
+      logit(Q[i, k]) <- alpha[k] - inprod(X[i,], beta[])
+    }
+
+    # Cell probabilities
+    p[i, 1] <- Q[i, 1]
+    for (k in 2:K_ord) {
+      p[i, k] <- Q[i, k] - Q[i, k-1]
+    }
+    p[i, K_ord + 1] <- 1 - Q[i, K_ord]
+  }
+
+  # Priors — ordered cutpoints
+  alpha[1] ~ dnorm(0, 0.01)
+  for (k in 2:K_ord) {
+    alpha[k] <- alpha[k-1] + exp(delta[k])
+    delta[k] ~ dnorm(0, 0.01)
+  }
+
+  # Priors — coefficients
+  for (j in 1:K_pred) {
+    beta[j] ~ dnorm(0, 0.01)
+  }
+}
+"
+jags_data_edu <- list(
+  y     = as.integer(y_fit_edu),
+  X     = predictors_fit_edu,
+  N     = length(y_fit_edu),
+  K_ord  = 3,                      
+  K_pred = ncol(predictors_fit_edu)
+)
+
+
+edu_model <- jags.model(
+  textConnection(edu_model_string),
+  data     = jags_data_edu,
+  n.chains = 3,
+  n.adapt  = 1000 
+)
+
+update(edu_model, n.iter = 3000)
+
+posterior_edu <- coda.samples(
+  edu_model,
+  variable.names = c("alpha", "beta"),
+  n.iter = 10000, 
+  thin   = 3         
+)
+
+
+cat("\n--- Posterior Summary ---\n")
+print(summary(posterior_edu))
+
+cat("\nGelman-Rubin Diagnostic:\n")
+print(gelman.diag(posterior_edu))
+
+cat("\nEffective Sample Sizes:\n")
+print(effectiveSize(posterior_edu))
+
+
+colnames(predictors_fit_edu)
+
+
+posterior_matrix_edu <- as.matrix(posterior_edu)
+
+# Significant predictors only
+params_to_plot_edu <- c("alpha[1]", "alpha[2]", "alpha[3]",
+                        "beta[2]", "beta[6]", "beta[8]",
+                        "beta[9]", "beta[10]", "beta[13]")
+
+labels_edu <- c("Cutpoint 1", "Cutpoint 2", "Cutpoint 3",
+                "Age", "Prev. Hypertension", "Total Cholesterol",
+                "BMI", "Heart Rate", "Pulse Pressure")
+
+# Build data frame
+posterior_df_edu <- as.data.frame(posterior_matrix_edu[, params_to_plot_edu])
+colnames(posterior_df_edu) <- labels_edu
+
+# Separate cutpoints and betas for clean plotting
+# Plot 1 — significant betas
+posterior_df_edu |>
+  select(-starts_with("Cutpoint")) |>
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+  mutate(parameter = factor(parameter, levels = labels_edu[4:9])) |>
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.75, color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "grey40", linewidth = 0.4) +
+  facet_wrap(~parameter, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title    = "Posterior Distributions — Significant Predictors of Education",
+    subtitle = "Ordinal logistic model | 95% CI excludes zero | Dashed line at zero",
+    x        = "Posterior value",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "none",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_distributions_education.png")
+
+# Plot 2 — cutpoints
+posterior_df_edu |>
+  select(starts_with("Cutpoint")) |>
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+  mutate(parameter = factor(parameter, levels = labels_edu[1:3])) |>
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.75, color = "white", linewidth = 0.3) +
+  facet_wrap(~parameter, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(
+    title    = "Posterior Distributions — Ordinal Cutpoints",
+    subtitle = "Thresholds separating education categories 1→2→3→4",
+    x        = "Posterior value",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "none",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_distributions_education_cutpoints.png")
+
+
+table(train$education)
+
+# Visualize cutpoints on latent scale
+cutpoints <- c(alpha1 = -0.24, alpha2 = 1.06, alpha3 = 2.16)
+
+# Cumulative probabilities at each cutpoint
+cum_probs <- plogis(cutpoints)
+
+# Cell probabilities
+cell_probs <- c(
+  cum_probs[1],
+  cum_probs[2] - cum_probs[1],
+  cum_probs[3] - cum_probs[2],
+  1 - cum_probs[3]
+)
+
+cat("Cumulative probabilities:\n")
+print(round(cum_probs, 3))
+cat("\nCell probabilities:\n")
+print(round(cell_probs, 3))
+
+# plot latent scale
+x <- seq(-5, 5, length.out = 1000)
+y <- dlogis(x)
+
+plot_df <- data.frame(x = x, y = y)
+
+ggplot(plot_df, aes(x = x, y = y)) +
+  geom_line(linewidth = 0.8, color = "grey30") +
+  
+  # Shaded regions for each category
+  geom_ribbon(data = subset(plot_df, x <= cutpoints[1]),
+              aes(ymin = 0, ymax = y), fill = "#E41A1C", alpha = 0.4) +
+  geom_ribbon(data = subset(plot_df, x > cutpoints[1] & x <= cutpoints[2]),
+              aes(ymin = 0, ymax = y), fill = "#377EB8", alpha = 0.4) +
+  geom_ribbon(data = subset(plot_df, x > cutpoints[2] & x <= cutpoints[3]),
+              aes(ymin = 0, ymax = y), fill = "#4DAF4A", alpha = 0.4) +
+  geom_ribbon(data = subset(plot_df, x > cutpoints[3]),
+              aes(ymin = 0, ymax = y), fill = "#984EA3", alpha = 0.4) +
+  
+  # Cutpoint lines
+  geom_vline(xintercept = cutpoints, linetype = "dashed",
+             color = "grey20", linewidth = 0.5) +
+  
+  # Cutpoint labels
+  annotate("text", x = cutpoints[1], y = max(y) * 1.05,
+           label = paste0("α_1 = ", cutpoints[1]),
+           hjust = 1.1, size = 3.5, color = "grey20") +
+  annotate("text", x = cutpoints[2], y = max(y) * 1.05,
+           label = paste0("α_2 = ", cutpoints[2]),
+           hjust = 1.1, size = 3.5, color = "grey20") +
+  annotate("text", x = cutpoints[3], y = max(y) * 1.05,
+           label = paste0("α_3 = ", cutpoints[3]),
+           hjust = 1.1, size = 3.5, color = "grey20") +
+  
+  # Category labels with probabilities
+  annotate("text", x = -2.5,  y = 0.05,
+           label = paste0("Some HS\n", round(cell_probs[1]*100, 1), "%"),
+           size = 3, color = "#E41A1C", fontface = "bold") +
+  annotate("text", x = 0.4,   y = 0.05,
+           label = paste0("HS Grad\n", round(cell_probs[2]*100, 1), "%"),
+           size = 3, color = "#377EB8", fontface = "bold") +
+  annotate("text", x = 1.6,   y = 0.15,
+           label = paste0("Some College\n", round(cell_probs[3]*100, 1), "%"),
+           size = 3, color = "#4DAF4A", fontface = "bold") +
+  annotate("text", x = 3.5,   y = 0.05,
+           label = paste0("College+\n", round(cell_probs[4]*100, 1), "%"),
+           size = 3, color = "#984EA3", fontface = "bold") +
+  
+  labs(
+    title    = "Latent Scale — Ordinal Cutpoints for Education",
+    subtitle = "Shaded areas represent probability mass in each education category",
+    x        = "Latent scale",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/education_latent_scale_cutpoints.png")
+
+
+# imputation of education data
+
+# Posterior samples
+alpha_samples <- posterior_matrix_edu[, c("alpha[1]", "alpha[2]", "alpha[3]")]
+beta_samples_edu  <- posterior_matrix_edu[, paste0("beta[", 1:13, "]")]
+n_samples_edu     <- nrow(posterior_matrix_edu)
+cat("Number of posterior samples:", n_samples_edu, "\n")
+
+# Function to compute category probabilities
+get_cat_probs <- function(alpha, lin_pred) {
+  K <- length(alpha) + 1
+  cum_p <- plogis(alpha - lin_pred)
+  p <- c(cum_p[1],
+         cum_p[2] - cum_p[1],
+         cum_p[3] - cum_p[2],
+         1 - cum_p[3])
+  return(p)
+}
+
+# Posterior predictive — train missing
+n_train_miss_edu  <- nrow(predictors_train_miss_edu)
+ppc_train_edu     <- matrix(NA, nrow = n_samples_edu, ncol = n_train_miss_edu)
+
+for (s in 1:n_samples_edu) {
+  for (i in 1:n_train_miss_edu) {
+    lin_pred <- sum(predictors_train_miss_edu[i, ] * beta_samples_edu[s, ])
+    probs    <- get_cat_probs(alpha_samples[s, ], lin_pred)
+    ppc_train_edu[s, i] <- sample(1:4, size = 1, prob = probs)
+  }
+}
+
+# Posterior predictive — test missing
+n_test_miss_edu  <- nrow(predictors_test_miss_edu)
+ppc_test_edu     <- matrix(NA, nrow = n_samples_edu, ncol = n_test_miss_edu)
+
+for (s in 1:n_samples_edu) {
+  for (i in 1:n_test_miss_edu) {
+    lin_pred <- sum(predictors_test_miss_edu[i, ] * beta_samples_edu[s, ])
+    probs    <- get_cat_probs(alpha_samples[s, ], lin_pred)
+    ppc_test_edu[s, i] <- sample(1:4, size = 1, prob = probs)
+  }
+}
+
+# Posterior summary — most frequent category (mode)
+imputed_train_edu <- apply(ppc_train_edu, 2, function(x) as.integer(names(which.max(table(x)))))
+imputed_test_edu  <- apply(ppc_test_edu,  2, function(x) as.integer(names(which.max(table(x)))))
+
+# Back to 0-indexed
+imputed_train_edu <- imputed_train_edu - 1L
+imputed_test_edu  <- imputed_test_edu  - 1L
+
+cat("Imputed train education:\n")
+print(table(imputed_train_edu))
+
+cat("\nImputed test education:\n")
+print(table(imputed_test_edu))
+
+# Sanity check — should match observed proportions roughly
+cat("\nObserved train proportions:\n")
+print(prop.table(table(train$education)))
+
+cat("\nImputed train proportions:\n")
+print(prop.table(table(imputed_train_edu)))
+
+
+# posterior predictive distribution
+
+# Random sample of 3 train and 3 test
+set.seed(123)
+sample_idx_train_edu <- sample(1:n_train_miss_edu, 3)
+sample_idx_test_edu  <- sample(1:n_test_miss_edu,  3)
+
+# Compute posterior category probabilities
+prob_train_df <- lapply(sample_idx_train_edu, function(i) {
+  counts <- table(factor(ppc_train_edu[, i], levels = 1:4))
+  props  <- as.numeric(counts) / n_samples_edu
+  data.frame(
+    observation = paste0("Train Obs ", train_miss_idx_edu[i]),
+    category    = factor(0:3, labels = c("Some HS", "HS Grad",
+                                         "Some College", "College+")),
+    probability = props,
+    set         = "Train"
+  )
+}) |> bind_rows()
+
+prob_test_df <- lapply(sample_idx_test_edu, function(i) {
+  counts <- table(factor(ppc_test_edu[, i], levels = 1:4))
+  props  <- as.numeric(counts) / n_samples_edu
+  data.frame(
+    observation = paste0("Test Obs ", test_miss_idx_edu[i]),
+    category    = factor(0:3, labels = c("Some HS", "HS Grad",
+                                         "Some College", "College+")),
+    probability = props,
+    set         = "Test"
+  )
+}) |> bind_rows()
+
+prob_df <- bind_rows(prob_train_df, prob_test_df)
+
+# Plot
+prob_df |>
+  ggplot(aes(x = category, y = probability, fill = set)) +
+  geom_col(alpha = 0.85, color = "white") +
+  geom_text(aes(label = paste0(round(probability * 100, 1), "%")),
+            vjust = -0.4, size = 2.8, color = "grey20") +
+  facet_wrap(~observation, ncol = 3) +
+  scale_fill_manual(values = c("Train" = "steelblue", "Test" = "tomato")) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(
+    title    = "Posterior Predictive Histogram — Missing Education",
+    subtitle = "3 train and 3 test observations | Bars show posterior probability per category",
+    x        = NULL,
+    y        = "Posterior Probability",
+    fill     = "Dataset"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "bottom",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 12),
+    plot.subtitle    = element_text(color = "grey40", size = 10),
+    axis.text.x      = element_text(angle = 30, hjust = 1)
+  )
+
+ggsave("Figures/posterior_predictive_uncertainty_education.png")
+
+# completing the imputation
+train$education[train_miss_idx_edu] <- imputed_train_edu
+test$education[test_miss_idx_edu]   <- imputed_test_edu
+
+
+cat("Missing education in train:", sum(is.na(train$education)), "\n")
+cat("Missing education in test:",  sum(is.na(test$education)),  "\n")
+
+
+cat("\nObserved train proportions:\n")
+print(prop.table(table(train$education)))
+
+saveRDS(train, "Data/train.rds")
+saveRDS(test,  "Data/test.rds")
+
+# modeling missingness in glucose ----------------------------
+
+train <- readRDS("Data/train.rds")
+test  <- readRDS("Data/test.rds")
+
+colnames(train)
+
+train |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+
+test |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+

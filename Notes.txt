@@ -626,6 +626,7 @@ colnames(predictors_fit_cigs)
 
 bp_meds imputation ------------------------------------
 
+due to the severe imbalance in the bp_meds, we used trivial imputation method (the modeling is instable)
 
 cat("Hypertensives with missing bp_meds — train:", n_train_hyp_miss, "\n")
 Hypertensives with missing bp_meds — train: 19 
@@ -649,3 +650,129 @@ Imputed bp_meds values — test:
 > cat("n(0):", sum(imputed_test_bp == 0), "| n(1):", sum(imputed_test_bp == 1), "\n")
 n(0): 2 | n(1): 1 
 
+
+  prevalent_hyp     n n_bp_meds prop_bp
+          <int> <int>     <dbl>   <dbl>
+1             0  2306         0  0     
+2             1  1034        98  0.0948
+
+
+education imputation ------------------------------------
+
+> print(gelman.diag(posterior_edu))
+Potential scale reduction factors:
+
+         Point est. Upper C.I.
+alpha[1]          1          1
+alpha[2]          1          1
+alpha[3]          1          1
+beta[1]           1          1
+beta[2]           1          1
+beta[3]           1          1
+beta[4]           1          1
+beta[5]           1          1
+beta[6]           1          1
+beta[7]           1          1
+beta[8]           1          1
+beta[9]           1          1
+beta[10]          1          1
+beta[11]          1          1
+beta[12]          1          1
+beta[13]          1          1
+
+Multivariate psrf
+
+1
+> cat("\nEffective Sample Sizes:\n")
+
+Effective Sample Sizes:
+> print(effectiveSize(posterior_edu))
+ alpha[1]  alpha[2]  alpha[3]   beta[1]   beta[2]   beta[3]   beta[4]   beta[5]   beta[6] 
+ 4166.657  5310.371  6257.212  5685.646  7950.575  7600.129  9034.971 10783.037  5307.125 
+  beta[7]   beta[8]   beta[9]  beta[10]  beta[11]  beta[12]  beta[13] 
+ 7795.922  9662.928  8482.877  9315.105  7926.695  8844.523  7253.145 
+> print(summary(posterior_edu))
+
+Iterations = 4003:13999
+Thinning interval = 3 
+Number of chains = 3 
+Sample size per chain = 3333 
+
+1. Empirical mean and standard deviation for each variable,
+   plus standard error of the mean:
+
+             Mean      SD  Naive SE Time-series SE
+alpha[1] -0.24290 0.05733 0.0005733      0.0008899
+alpha[2]  1.05643 0.06050 0.0006051      0.0008334
+alpha[3]  2.15791 0.07230 0.0007231      0.0009157
+beta[1]   0.06597 0.07550 0.0007550      0.0010025
+beta[2]  -0.32311 0.04040 0.0004040      0.0004538
+beta[3]  -0.02742 0.03749 0.0003749      0.0004301
+beta[4]   0.28393 0.21277 0.0021278      0.0022382
+beta[5]  -0.68106 0.46874 0.0046877      0.0045405
+beta[6]   0.20123 0.09351 0.0009352      0.0012843
+beta[7]  -0.38829 0.26561 0.0026562      0.0030125
+beta[8]   0.10103 0.03511 0.0003512      0.0003581
+beta[9]  -0.25109 0.03716 0.0003716      0.0004036
+beta[10] -0.09088 0.03612 0.0003612      0.0003747
+beta[11]  0.04811 0.04137 0.0004137      0.0004651
+beta[12] -0.12706 0.10241 0.0010241      0.0010890
+beta[13] -0.16617 0.04385 0.0004385      0.0005152
+
+2. Quantiles for each variable:
+
+             2.5%      25%      50%       75%    97.5%
+alpha[1] -0.35507 -0.28097 -0.24371 -0.204096 -0.13097
+alpha[2]  0.93924  1.01492  1.05646  1.096068  1.17638
+alpha[3]  2.01883  2.10875  2.15682  2.207199  2.30176
+beta[1]  -0.08582  0.01630  0.06599  0.117450  0.21395
+beta[2]  -0.40206 -0.35072 -0.32291 -0.295604 -0.24430
+beta[3]  -0.10007 -0.05248 -0.02785 -0.001755  0.04497
+beta[4]  -0.13653  0.13976  0.28450  0.427955  0.70471
+beta[5]  -1.63167 -0.98478 -0.66953 -0.363165  0.21868
+beta[6]   0.01796  0.13938  0.20163  0.265213  0.38113
+beta[7]  -0.91451 -0.56948 -0.38287 -0.207589  0.12680
+beta[8]   0.03174  0.07760  0.10120  0.124458  0.16957
+beta[9]  -0.32399 -0.27618 -0.25125 -0.225704 -0.17943
+beta[10] -0.16051 -0.11559 -0.09122 -0.066518 -0.01999
+beta[11] -0.03333  0.02064  0.04833  0.076329  0.12832
+beta[12] -0.32985 -0.19713 -0.12619 -0.058407  0.07340
+beta[13] -0.25085 -0.19608 -0.16614 -0.136474 -0.07971
+
+> colnames(predictors_fit_edu)
+ [1] "sex"              "age"              "cigs_per_day"     "bp_meds"         
+ [5] "prevalent_stroke" "prevalent_hyp"    "diabetes"         "tot_chol"        
+ [9] "bmi"              "heart_rate"       "glucose"          "ten_year_chd"    
+[13] "pulse_pressure"  
+
+
+The education variable is coded as follows: 0 = Some High School (41.6%), 1 = High School Graduate (30.3%), 2 = Some College (16.7%), and 3 = College or above (11.4%). In the JAGS model, the outcome is 1-indexed, so these categories become 1 through 4 respectively.
+The three estimated cutpoints divide the underlying latent scale into four education categories. The first cutpoint (α₁ = −0.24) separates Some High School from High School Graduate. The second cutpoint (α₂ = 1.06) separates High School 
+Graduate from Some College. The third cutpoint (α₃ = 2.16) separates Some College from College or above. The cutpoints are well
+separated and precisely estimated, reflecting the clear ordering of education levels in the data. The relatively small value of α₁ 
+is consistent with the high proportion of participants in the lowest education category (41.6%), indicating that most of the latent distribution mass 
+lies below the first threshold.
+
+
+print(round(cum_probs, 3))
+alpha1 alpha2 alpha3 
+ 0.440  0.743  0.897 
+> cat("\nCell probabilities:\n")
+
+Cell probabilities:
+> print(round(cell_probs, 3))
+alpha1 alpha2 alpha3 alpha3 
+ 0.440  0.302  0.154  0.103 
+
+
+print(table(imputed_train_edu))
+imputed_train_edu
+ 0  1 
+63 12 
+> cat("\nImputed test education:\n")
+
+Imputed test education:
+> print(table(imputed_test_edu))
+imputed_test_edu
+ 0  1 
+15  2 
