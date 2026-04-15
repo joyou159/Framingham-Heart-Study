@@ -324,4 +324,257 @@ ggsave("Figures/beta_posterior_top5_pip.png", width = 10, height = 6)
 
 
 
+# Model 1: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure ---------------------------------
+
+X_m1_train <- X_train[, c("age", "sex", "cigs_per_day", "prevalent_hyp", "pulse_pressure")]
+
+mod1_string <- "
+model {
+  for (i in 1:n) {
+    Y[i]          ~ dbern(pi[i])
+    logit(pi[i]) <- beta[1]
+                   + X[i,1]*beta[2] + X[i,2]*beta[3]
+                   + X[i,3]*beta[4] + X[i,4]*beta[5] + X[i,5]*beta[6]
+    like[i]      <- dbin(Y[i], pi[i], 1)
+  }
+  for (j in 1:6) { beta[j] ~ dnorm(0, 0.01) }
+}
+"
+
+data1 <- list(Y = Y_train, X = X_m1_train, n = N_train)
+
+inits1 <- function() list(beta = rnorm(6, 0, 0.1))
+
+model1 <- jags.model(
+  textConnection(mod1_string),
+  data     = data1,
+  inits    = inits1,
+  n.chains = 3,
+  n.adapt  = 3000
+)
+
+update(model1, n.iter = 10000)
+
+samps1 <- coda.samples(
+  model1,
+  variable.names = c("beta", "like"),
+  n.iter         = 20000,
+  thin           = 5
+)
+
+# --- DIC ---
+DIC1 <- dic.samples(model1, n.iter = 20000, thin = 5)
+
+# --- WAIC ---
+like_cols <- grep("^like", colnames(samps1[[1]]))
+like1     <- rbind(samps1[[1]][, like_cols],
+                   samps1[[2]][, like_cols],
+                   samps1[[3]][, like_cols])
+fbar1 <- colMeans(like1)
+Pw1   <- sum(apply(log(like1), 2, var))
+WAIC1 <- -2 * sum(log(fbar1)) + 2 * Pw1
+
+cat("=== Model 1: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure ===\n")
+cat("DIC:\n");  print(DIC1)
+cat("WAIC:", round(WAIC1, 2), "\n")
+cat("pW (WAIC):", round(Pw1, 2), "\n")
+
+# --- Diagnostics ---
+beta_samps1 <- samps1[, grep("^beta", colnames(samps1[[1]]))]
+
+cat("\nGelman-Rubin:\n")
+print(gelman.diag(beta_samps1))
+
+cat("\nEffective Sample Sizes:\n")
+print(effectiveSize(beta_samps1))
+
+cat("\nPosterior Summary:\n")
+print(summary(beta_samps1))
+
+
+png("Figures/trace_plots_model_1_beta_1to3.png", width = 1400, height = 1200, res = 120)
+par(mfrow = c(3, 2))
+for (j in 1:3) {
+  traceplot(beta_samps1[, j], main = paste0("beta[", j, "] trace"))
+  densplot(beta_samps1[, j],  main = paste0("beta[", j, "] density"))
+}
+dev.off()
+
+png("Figures/trace_plots_model_1_beta_4to6.png", width = 1400, height = 1200, res = 120)
+par(mfrow = c(3, 2))
+for (j in 4:6) {
+  traceplot(beta_samps1[, j], main = paste0("beta[", j, "] trace"))
+  densplot(beta_samps1[, j],  main = paste0("beta[", j, "] density"))
+}
+dev.off()
+
+
+# Model 2: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure + glucose ----------
+
+X_m2_train <- X_train[, c("age", "sex", "cigs_per_day", "prevalent_hyp", "pulse_pressure", "glucose")]
+
+mod2_string <- "
+model {
+  for (i in 1:n) {
+    Y[i]          ~ dbern(pi[i])
+    logit(pi[i]) <- beta[1]
+                   + X[i,1]*beta[2] + X[i,2]*beta[3]
+                   + X[i,3]*beta[4] + X[i,4]*beta[5] + X[i,5]*beta[6]
+                   + X[i,6]*beta[7]
+    like[i]      <- dbin(Y[i], pi[i], 1)
+  }
+  for (j in 1:7) { beta[j] ~ dnorm(0, 0.01) }
+}
+"
+
+data2 <- list(Y = Y_train, X = X_m2_train, n = N_train)
+
+inits2 <- function() list(beta = rnorm(7, 0, 0.1))
+
+model2 <- jags.model(
+  textConnection(mod2_string),
+  data     = data2,
+  inits    = inits2,
+  n.chains = 3,
+  n.adapt  = 3000
+)
+
+update(model2, n.iter = 10000)
+
+samps2 <- coda.samples(
+  model2,
+  variable.names = c("beta", "like"),
+  n.iter         = 20000,
+  thin           = 5
+)
+
+# --- DIC ---
+DIC2 <- dic.samples(model2, n.iter = 20000, thin = 5)
+
+# --- WAIC ---
+like_cols2 <- grep("^like", colnames(samps2[[1]]))
+like2      <- rbind(samps2[[1]][, like_cols2],
+                    samps2[[2]][, like_cols2],
+                    samps2[[3]][, like_cols2])
+fbar2 <- colMeans(like2)
+Pw2   <- sum(apply(log(like2), 2, var))
+WAIC2 <- -2 * sum(log(fbar2)) + 2 * Pw2
+
+cat("=== Model 2: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure + glucose ===\n")
+cat("DIC:\n");  print(DIC2)
+cat("WAIC:", round(WAIC2, 2), "\n")
+cat("pW (WAIC):", round(Pw2, 2), "\n")
+
+# --- Diagnostics ---
+beta_samps2 <- samps2[, grep("^beta", colnames(samps2[[1]]))]
+
+cat("\nGelman-Rubin:\n")
+print(gelman.diag(beta_samps2))
+
+cat("\nEffective Sample Sizes:\n")
+print(effectiveSize(beta_samps2))
+
+cat("\nPosterior Summary:\n")
+print(summary(beta_samps2))
+
+
+png("Figures/trace_plots_model_2_beta_1to3.png", width = 1400, height = 1200, res = 120)
+par(mfrow = c(3, 2))
+for (j in 1:3) {
+  traceplot(beta_samps2[, j], main = paste0("beta[", j, "] trace"))
+  densplot(beta_samps2[, j],  main = paste0("beta[", j, "] density"))
+}
+dev.off()
+
+png("Figures/trace_plots_model_2_beta_4to6.png", width = 1400, height = 1200, res = 120)
+par(mfrow = c(3, 2))
+for (j in 4:6) {
+  traceplot(beta_samps2[, j], main = paste0("beta[", j, "] trace"))
+  densplot(beta_samps2[, j],  main = paste0("beta[", j, "] density"))
+}
+dev.off()
+
+png("Figures/trace_plots_model_2_beta_7.png", width = 1400, height = 500, res = 120)
+par(mfrow = c(1, 2))
+traceplot(beta_samps2[, 7], main = "beta[7] trace")
+densplot(beta_samps2[, 7],  main = "beta[7] density")
+dev.off()
+
+
+
+
+
+# Comparison between model_1 and model_2 --------------------------
+cat("\n=== Model Comparison ===\n")
+cat("        WAIC     pW\n")
+cat("Model1:", round(WAIC1, 2), "  ", round(Pw1, 2), "\n")
+cat("Model2:", round(WAIC2, 2), "  ", round(Pw2, 2), "\n")
+cat("\nDIC Model 1:\n"); print(DIC1)
+cat("\nDIC Model 2:\n"); print(DIC2)
+
+
+
+# Extract beta samples for both models
+beta_names_m1 <- c("intercept", "age", "sex", "cigs_per_day", 
+                   "prevalent_hyp", "pulse_pressure")
+
+beta_names_m2 <- c("intercept", "age", "sex", "cigs_per_day",
+                   "prevalent_hyp", "pulse_pressure", "glucose")
+
+# Combine all chains
+beta_mat1 <- rbind(samps1[[1]], samps1[[2]], samps1[[3]])[, grep("^beta", colnames(samps1[[1]]))]
+beta_mat2 <- rbind(samps2[[1]], samps2[[2]], samps2[[3]])[, grep("^beta", colnames(samps2[[1]]))]
+
+colnames(beta_mat1) <- beta_names_m1
+colnames(beta_mat2) <- beta_names_m2
+
+# Model 1
+as.data.frame(beta_mat1) |>
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+  mutate(parameter = factor(parameter, levels = beta_names_m1)) |>
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5, linewidth = 0.7, color = "white") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  facet_wrap(~ parameter, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title    = "Posterior Distributions — Model 1",
+    subtitle = "age + sex + cigs_per_day + prevalent_hyp + pulse_pressure",
+    x        = "β value", y = "Density"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position    = "none",
+    strip.text         = element_text(face = "bold", size = 10),
+    panel.grid.minor   = element_blank(),
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/beta_posterior_model1.png", width = 10, height = 6)
+
+# Model 2
+as.data.frame(beta_mat2) |>
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+  mutate(parameter = factor(parameter, levels = beta_names_m2)) |>
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5, linewidth = 0.7, color = "white") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.5) +
+  facet_wrap(~ parameter, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title    = "Posterior Distributions of β — Model 2",
+    subtitle = "age + sex + cigs_per_day + prevalent_hyp + pulse_pressure + glucose",
+    x        = "β value", y = "Density"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position    = "none",
+    strip.text         = element_text(face = "bold", size = 10),
+    panel.grid.minor   = element_blank(),
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/beta_posterior_model2.png", width = 10, height = 6)
 

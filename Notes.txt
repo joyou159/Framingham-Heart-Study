@@ -1031,3 +1031,164 @@ gamma[13]         diabetes 0.52208333
               proportion
 1101001100110 0.05508333
 1101001100010 0.05450000
+
+
+
+
+# Model 1: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure ---------------------------------
+
+print(gelman.diag(beta_samps1))
+Potential scale reduction factors:
+
+        Point est. Upper C.I.
+beta[1]          1          1
+beta[2]          1          1
+beta[3]          1          1
+beta[4]          1          1
+beta[5]          1          1
+beta[6]          1          1
+
+Multivariate psrf
+
+1
+> cat("\nEffective Sample Sizes:\n")
+
+Effective Sample Sizes:
+> print(effectiveSize(beta_samps1))
+  beta[1]   beta[2]   beta[3]   beta[4]   beta[5]   beta[6] 
+ 6930.547 11043.196  8070.236 12327.650  7877.032  9623.596 
+> cat("\nPosterior Summary:\n")
+
+Posterior Summary:
+> print(summary(beta_samps1))
+
+Iterations = 13005:33000
+Thinning interval = 5 
+Number of chains = 3 
+Sample size per chain = 4000 
+
+1. Empirical mean and standard deviation for each variable,
+   plus standard error of the mean:
+
+           Mean      SD  Naive SE Time-series SE
+beta[1] -2.3999 0.09233 0.0008429      0.0011106
+beta[2]  0.5733 0.06001 0.0005478      0.0005711
+beta[3]  0.5649 0.11046 0.0010084      0.0012298
+beta[4]  0.2830 0.05161 0.0004711      0.0004649
+beta[5]  0.4885 0.12314 0.0011241      0.0013884
+beta[6]  0.2686 0.06429 0.0005869      0.0006555
+
+2. Quantiles for each variable:
+
+           2.5%     25%     50%     75%   97.5%
+beta[1] -2.5812 -2.4628 -2.3997 -2.3372 -2.2230
+beta[2]  0.4553  0.5323  0.5736  0.6137  0.6907
+beta[3]  0.3483  0.4910  0.5633  0.6397  0.7787
+beta[4]  0.1813  0.2484  0.2832  0.3178  0.3842
+beta[5]  0.2480  0.4046  0.4882  0.5716  0.7318
+beta[6]  0.1433  0.2246  0.2687  0.3122  0.3948
+
+
+=== Model 1: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure ===
+> cat("DIC:\n");  print(DIC1)
+DIC:
+Mean deviance:  2522 
+penalty 5.978 
+Penalized deviance: 2528 
+> cat("WAIC:", round(WAIC1, 2), "\n")
+WAIC: 2527.69 
+> cat("pW (WAIC):", round(Pw1, 2), "\n")
+pW (WAIC): 5.97 
+
+
+# Model 2: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure + glucose ----------
+
+print(gelman.diag(beta_samps2))
+Potential scale reduction factors:
+
+        Point est. Upper C.I.
+beta[1]          1          1
+beta[2]          1          1
+beta[3]          1          1
+beta[4]          1          1
+beta[5]          1          1
+beta[6]          1          1
+beta[7]          1          1
+
+Multivariate psrf
+
+1
+> cat("\nEffective Sample Sizes:\n")
+
+Effective Sample Sizes:
+> print(effectiveSize(beta_samps2))
+  beta[1]   beta[2]   beta[3]   beta[4]   beta[5]   beta[6]   beta[7] 
+ 6951.688 11934.302  8482.663 11328.561  7766.588  9411.488 12000.000 
+> cat("\nPosterior Summary:\n")
+
+Posterior Summary:
+> print(summary(beta_samps2))
+
+Iterations = 13005:33000
+Thinning interval = 5 
+Number of chains = 3 
+Sample size per chain = 4000 
+
+1. Empirical mean and standard deviation for each variable,
+   plus standard error of the mean:
+
+           Mean      SD  Naive SE Time-series SE
+beta[1] -2.4080 0.09451 0.0008627      0.0011337
+beta[2]  0.5704 0.05911 0.0005396      0.0005433
+beta[3]  0.5576 0.11235 0.0010257      0.0012209
+beta[4]  0.2956 0.05177 0.0004726      0.0004871
+beta[5]  0.4965 0.12346 0.0011270      0.0014010
+beta[6]  0.2361 0.06438 0.0005877      0.0006637
+beta[7]  0.1635 0.04496 0.0004105      0.0004105
+
+2. Quantiles for each variable:
+
+            2.5%     25%     50%     75%   97.5%
+beta[1] -2.59407 -2.4714 -2.4073 -2.3435 -2.2254
+beta[2]  0.45419  0.5305  0.5701  0.6110  0.6845
+beta[3]  0.33526  0.4813  0.5575  0.6336  0.7730
+beta[4]  0.19333  0.2610  0.2959  0.3302  0.3944
+beta[5]  0.25255  0.4126  0.4968  0.5791  0.7366
+beta[6]  0.11056  0.1931  0.2354  0.2790  0.3641
+beta[7]  0.07377  0.1335  0.1636  0.1940  0.2513
+
+
+=== Model 2: age + sex + cigs_per_day + prevalent_hyp + pulse_pressure + glucose ===
+> cat("DIC:\n");  print(DIC2)
+DIC:
+Mean deviance:  2510 
+penalty 7.001 
+Penalized deviance: 2517 
+> cat("WAIC:", round(WAIC2, 2), "\n")
+WAIC: 2516.79 
+> cat("pW (WAIC):", round(Pw2, 2), "\n")
+pW (WAIC): 6.99 
+
+
+Comparison ------------------------------------------------
+> cat("\n=== Model Comparison ===\n")
+
+=== Model Comparison ===
+> cat("        WAIC     pW\n")
+        WAIC     pW
+> cat("Model1:", round(WAIC1, 2), "  ", round(Pw1, 2), "\n")
+Model1: 2527.69    5.97 
+> cat("Model2:", round(WAIC2, 2), "  ", round(Pw2, 2), "\n")
+Model2: 2516.79    6.99 
+> cat("\nDIC Model 1:\n"); print(DIC1)
+
+DIC Model 1:
+Mean deviance:  2522 
+penalty 5.978 
+Penalized deviance: 2528 
+> cat("\nDIC Model 2:\n"); print(DIC2)
+
+DIC Model 2:
+Mean deviance:  2510 
+penalty 7.001 
+Penalized deviance: 2517 
