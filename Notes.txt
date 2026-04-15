@@ -776,3 +776,89 @@ Imputed test education:
 imputed_test_edu
  0  1 
 15  2 
+
+
+glucose imputation ------------------------------------
+
+print(gelman.diag(posterior_gluc))
+Potential scale reduction factors:
+
+         Point est. Upper C.I.
+beta[1]           1          1
+beta[2]           1          1
+beta[3]           1          1
+beta[4]           1          1
+beta[5]           1          1
+beta[6]           1          1
+beta[7]           1          1
+beta[8]           1          1
+beta[9]           1          1
+beta[10]          1          1
+beta[11]          1          1
+beta[12]          1          1
+beta[13]          1          1
+beta0             1          1
+sigma             1          1
+
+Multivariate psrf
+
+1
+> cat("\nEffective Sample Sizes:\n")
+
+Effective Sample Sizes:
+> print(effectiveSize(posterior_gluc))
+  beta[1]   beta[2]   beta[3]   beta[4]   beta[5]   beta[6]   beta[7]   beta[8]   beta[9] 
+10853.849 12139.871 11802.579 11820.170 12568.935 11701.781 11347.035 11869.669 12000.000 
+ beta[10]  beta[11]  beta[12]  beta[13]     beta0     sigma 
+12000.000 11821.583 12582.171 12629.630  9352.299 12185.597 
+> print(summary(posterior_gluc))
+
+Iterations = 10005:30000
+Thinning interval = 5 
+Number of chains = 3 
+Sample size per chain = 4000 
+
+1. Empirical mean and standard deviation for each variable,
+   plus standard error of the mean:
+
+             Mean      SD  Naive SE Time-series SE
+beta[1]   0.03088 0.03329 0.0003039      3.196e-04
+beta[2]   0.02932 0.01789 0.0001633      1.624e-04
+beta[3]   0.01066 0.01507 0.0001375      1.387e-04
+beta[4]  -0.05260 0.01650 0.0001507      1.518e-04
+beta[5]  -0.09013 0.09234 0.0008429      8.250e-04
+beta[6]   0.08908 0.19565 0.0017861      1.814e-03
+beta[7]  -0.02671 0.04131 0.0003771      3.881e-04
+beta[8]   3.11775 0.09412 0.0008592      8.644e-04
+beta[9]  -0.01029 0.01600 0.0001461      1.461e-04
+beta[10]  0.01572 0.01639 0.0001496      1.496e-04
+beta[11]  0.06812 0.01577 0.0001440      1.451e-04
+beta[12]  0.10062 0.04411 0.0004026      3.938e-04
+beta[13]  0.09455 0.01934 0.0001766      1.727e-04
+beta0    -0.11429 0.02793 0.0002549      2.890e-04
+sigma     0.83574 0.01082 0.0000988      9.805e-05
+
+2. Quantiles for each variable:
+
+             2.5%        25%      50%        75%    97.5%
+beta[1]  -0.03347  0.0081746  0.03095  0.0532431  0.09621
+beta[2]  -0.00593  0.0173765  0.02941  0.0413577  0.06390
+beta[3]  -0.01912  0.0006569  0.01057  0.0208714  0.04029
+beta[4]  -0.08490 -0.0636125 -0.05244 -0.0414984 -0.02028
+beta[5]  -0.26989 -0.1516055 -0.09082 -0.0286442  0.09189
+beta[6]  -0.30089 -0.0412694  0.08857  0.2202947  0.47611
+beta[7]  -0.10723 -0.0544038 -0.02692  0.0014966  0.05380
+beta[8]   2.93406  3.0551195  3.11856  3.1808869  3.30282
+beta[9]  -0.04173 -0.0212820 -0.01036  0.0004979  0.02059
+beta[10] -0.01602  0.0047511  0.01561  0.0264909  0.04814
+beta[11]  0.03751  0.0573929  0.06804  0.0787262  0.09905
+beta[12]  0.01518  0.0709634  0.10007  0.1294926  0.18869
+beta[13]  0.05668  0.0818032  0.09452  0.1070138  0.13283
+beta0    -0.16891 -0.1331696 -0.11458 -0.0951426 -0.05918
+sigma     0.81464  0.8284317  0.83564  0.8431090  0.85736
+
+> colnames(predictors_fit_gluc)
+ [1] "sex"              "age"              "education"        "cigs_per_day"    
+ [5] "bp_meds"          "prevalent_stroke" "prevalent_hyp"    "diabetes"        
+ [9] "tot_chol"         "bmi"              "heart_rate"       "ten_year_chd"    
+[13] "pulse_pressure" 

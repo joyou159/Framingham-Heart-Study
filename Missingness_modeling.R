@@ -1469,3 +1469,283 @@ test |> summarise(across(everything(), ~sum(is.na(.)))) |>
   pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
   filter(n_missing > 0) |> print()
 
+
+# Scaling
+continuous_vars_gluc <- c("age", "cigs_per_day", "tot_chol",
+                          "pulse_pressure", "bmi", "heart_rate", "glucose")
+
+log_vars_gluc <- c("bmi", "pulse_pressure", "tot_chol", "heart_rate", "glucose")
+
+train_means_gluc <- train |>
+  mutate(across(all_of(log_vars_gluc), log)) |>
+  summarise(across(all_of(continuous_vars_gluc), ~mean(.x, na.rm = TRUE)))
+
+train_sds_gluc <- train |>
+  mutate(across(all_of(log_vars_gluc), log)) |>
+  summarise(across(all_of(continuous_vars_gluc), ~sd(.x, na.rm = TRUE)))
+
+train_scaled_gluc <- train |>
+  mutate(across(all_of(log_vars_gluc), log)) |>
+  mutate(across(all_of(continuous_vars_gluc),
+                ~(.x - train_means_gluc[[cur_column()]]) / train_sds_gluc[[cur_column()]]))
+
+test_scaled_gluc <- test |>
+  mutate(across(all_of(log_vars_gluc), log)) |>
+  mutate(across(all_of(continuous_vars_gluc),
+                ~(.x - train_means_gluc[[cur_column()]]) / train_sds_gluc[[cur_column()]]))
+
+# Design matrices
+predictors_train_gluc <- train_scaled_gluc |>
+  select(-glucose) |>
+  as.matrix()
+
+predictors_test_gluc <- test_scaled_gluc |>
+  select(-glucose) |>
+  as.matrix()
+
+# Complete cases
+complete_rows_gluc  <- complete.cases(predictors_train_gluc) & !is.na(train_scaled_gluc$glucose)
+y_fit_gluc          <- train_scaled_gluc$glucose[complete_rows_gluc]
+predictors_fit_gluc <- predictors_train_gluc[complete_rows_gluc, ]
+
+cat("y_fit_gluc length:", length(y_fit_gluc), "\n")
+cat("predictors_fit_gluc dim:", dim(predictors_fit_gluc), "\n")
+cat("Columns:", colnames(predictors_fit_gluc), "\n")
+
+# Missing indices
+train_miss_idx_gluc        <- which(is.na(train_scaled_gluc$glucose))
+predictors_train_miss_gluc <- predictors_train_gluc[train_miss_idx_gluc, ]
+
+test_miss_idx_gluc        <- which(is.na(test_scaled_gluc$glucose))
+predictors_test_miss_gluc <- predictors_test_gluc[test_miss_idx_gluc, ]
+
+cat("\nTrain missing glucose:", length(train_miss_idx_gluc), "\n")
+cat("Test missing glucose:",  length(test_miss_idx_gluc),  "\n")
+
+
+# JAGS model for glucose missingnes
+gluc_model_string <- "
+model {
+  # Likelihood
+  for (i in 1:N) {
+    y[i] ~ dnorm(mu[i], tau)
+    mu[i] <- beta0 + inprod(X[i,], beta[])
+  }
+
+  # Priors
+  beta0 ~ dnorm(0, 0.01)
+
+  for (j in 1:K) {
+    beta[j] ~ dnorm(0, 0.01)
+  }
+
+  tau   ~ dgamma(0.001, 0.001)
+  sigma <- 1 / sqrt(tau)
+}
+"
+
+jags_data_gluc <- list(
+  y = y_fit_gluc,
+  X = predictors_fit_gluc,
+  N = length(y_fit_gluc),
+  K = ncol(predictors_fit_gluc)
+)
+
+gluc_model <- jags.model(
+  textConnection(gluc_model_string),
+  data     = jags_data_gluc,
+  n.chains = 3,
+  n.adapt  = 3000
+)
+
+update(gluc_model, n.iter = 10000)
+
+posterior_gluc <- coda.samples(
+  gluc_model,
+  variable.names = c("beta0", "beta", "sigma"),
+  n.iter = 20000,
+  thin   = 5
+)
+
+# Diagnostics
+cat("\n--- Posterior Summary ---\n")
+print(summary(posterior_gluc))
+
+cat("\nGelman-Rubin Diagnostic:\n")
+print(gelman.diag(posterior_gluc))
+
+cat("\nEffective Sample Sizes:\n")
+print(effectiveSize(posterior_gluc))
+
+colnames(predictors_fit_gluc)
+
+# posterior distribution 
+posterior_matrix_gluc <- as.matrix(posterior_gluc)
+
+params_to_plot_gluc <- c("beta[4]", "beta[8]", "beta[11]",
+                         "beta[12]", "beta[13]", "sigma")
+
+labels_gluc <- c("Cigs Per Day", "Diabetes", "Heart Rate",
+                 "Ten Year CHD", "Pulse Pressure", "Sigma")
+
+posterior_df_gluc <- as.data.frame(posterior_matrix_gluc[, params_to_plot_gluc])
+colnames(posterior_df_gluc) <- labels_gluc
+
+posterior_df_gluc |>
+  pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+  mutate(parameter = factor(parameter, levels = labels_gluc)) |>
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.75, color = "white", linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed",
+             color = "grey40", linewidth = 0.4) +
+  facet_wrap(~parameter, scales = "free", ncol = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title    = "Posterior Distributions — Significant Predictors of Glucose",
+    subtitle = "95% credible interval excludes zero | Dashed line at zero for reference",
+    x        = "Posterior value",
+    y        = "Density"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "none",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_distributions_glucose.png")
+
+# posterior predictive distribution for missing values
+
+# Posterior samples
+beta0_samples_gluc <- posterior_matrix_gluc[, "beta0"]
+beta_samples_gluc  <- posterior_matrix_gluc[, paste0("beta[", 1:13, "]")]
+sigma_samples_gluc <- posterior_matrix_gluc[, "sigma"]
+n_samples_gluc     <- length(beta0_samples_gluc)
+cat("Number of posterior samples:", n_samples_gluc, "\n")
+
+# Posterior predictive — train missing
+n_train_miss_gluc  <- nrow(predictors_train_miss_gluc)
+ppc_train_gluc     <- matrix(NA, nrow = n_samples_gluc, ncol = n_train_miss_gluc)
+
+for (s in 1:n_samples_gluc) {
+  mu_train           <- beta0_samples_gluc[s] + predictors_train_miss_gluc %*% beta_samples_gluc[s, ]
+  ppc_train_gluc[s, ] <- rnorm(n_train_miss_gluc, mean = mu_train, sd = sigma_samples_gluc[s])
+}
+
+# Posterior predictive — test missing
+n_test_miss_gluc  <- nrow(predictors_test_miss_gluc)
+ppc_test_gluc     <- matrix(NA, nrow = n_samples_gluc, ncol = n_test_miss_gluc)
+
+for (s in 1:n_samples_gluc) {
+  mu_test            <- beta0_samples_gluc[s] + predictors_test_miss_gluc %*% beta_samples_gluc[s, ]
+  ppc_test_gluc[s, ] <- rnorm(n_test_miss_gluc, mean = mu_test, sd = sigma_samples_gluc[s])
+}
+
+# Back-transform: scaled log → original scale
+ppc_train_gluc_orig <- exp(ppc_train_gluc * train_sds_gluc[["glucose"]] + train_means_gluc[["glucose"]])
+ppc_test_gluc_orig  <- exp(ppc_test_gluc  * train_sds_gluc[["glucose"]] + train_means_gluc[["glucose"]])
+
+# Posterior summary 
+imputed_train_gluc <- round(colMeans(ppc_train_gluc_orig))
+imputed_test_gluc  <- round(colMeans(ppc_test_gluc_orig))
+
+ci_train_gluc <- apply(ppc_train_gluc_orig, 2, quantile, probs = c(0.025, 0.975))
+ci_test_gluc  <- apply(ppc_test_gluc_orig,  2, quantile, probs = c(0.025, 0.975))
+
+cat("Imputed train glucose (original scale):\n")
+print(imputed_train_gluc)
+cat("\n95% Credible Intervals — train:\n")
+print(round(ci_train_gluc, 1))
+
+cat("\nImputed test glucose (original scale):\n")
+print(imputed_test_gluc)
+cat("\n95% Credible Intervals — test:\n")
+print(round(ci_test_gluc, 1))
+
+
+# Select 3 train and 3 random test
+set.seed(123)
+high_val_idx     <- 139  # imputed value = 153
+other_train_idx  <- sample(setdiff(1:n_train_miss_gluc, high_val_idx), 2)
+sample_idx_train_gluc <- c(high_val_idx, other_train_idx)
+sample_idx_test_gluc  <- sample(1:n_test_miss_gluc, 3)
+
+# Build plot data
+plot_data_gluc <- bind_rows(
+  as.data.frame(ppc_train_gluc_orig[, sample_idx_train_gluc]) |>
+    setNames(paste0("Train Obs ", train_miss_idx_gluc[sample_idx_train_gluc],
+                    ifelse(sample_idx_train_gluc == high_val_idx, " ★", ""))) |>
+    pivot_longer(everything(), names_to = "observation", values_to = "value") |>
+    mutate(set = "Train"),
+  
+  as.data.frame(ppc_test_gluc_orig[, sample_idx_test_gluc]) |>
+    setNames(paste0("Test Obs ", test_miss_idx_gluc[sample_idx_test_gluc])) |>
+    pivot_longer(everything(), names_to = "observation", values_to = "value") |>
+    mutate(set = "Test")
+)
+
+mean_labels_gluc <- plot_data_gluc |>
+  group_by(observation, set) |>
+  summarise(mean_val = mean(value), .groups = "drop") |>
+  mutate(label = paste0("Mean = ", round(mean_val, 1)))
+
+# Plot
+plot_data_gluc |>
+  ggplot(aes(x = value, fill = set)) +
+  geom_density(alpha = 0.75, color = "white", linewidth = 0.3) +
+  geom_vline(data = mean_labels_gluc,
+             aes(xintercept = mean_val),
+             linetype = "dashed", color = "grey30", linewidth = 0.5) +
+  geom_text(data = mean_labels_gluc,
+            aes(x = mean_val, y = Inf, label = label),
+            hjust = -0.1, vjust = 1.5,
+            size = 2.8, color = "grey20", inherit.aes = FALSE) +
+  facet_wrap(~observation, scales = "free", ncol = 3) +
+  scale_fill_manual(values = c("Train" = "steelblue", "Test" = "tomato")) +
+  labs(
+    title    = "Posterior Predictive Distributions — Missing Glucose",
+    subtitle = "★ High value observation (diabetic) | Dashed line = posterior mean",
+    x        = "Glucose (mg/dL)",
+    y        = "Density",
+    fill     = "Dataset"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "bottom",
+    strip.text       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(face = "bold", size = 12),
+    plot.subtitle    = element_text(color = "grey40", size = 10)
+  )
+
+ggsave("Figures/posterior_predictive_distribution_missing_glucose.png")
+
+
+# adding the imputed values
+
+train$glucose[train_miss_idx_gluc] <- imputed_train_gluc
+test$glucose[test_miss_idx_gluc]   <- imputed_test_gluc
+
+cat("Missing glucose in train:", sum(is.na(train$glucose)), "\n")
+cat("Missing glucose in test:",  sum(is.na(test$glucose)),  "\n")
+
+cat("\nRemaining missingness in train:\n")
+train |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+
+cat("\nRemaining missingness in test:\n")
+test |> summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") |>
+  filter(n_missing > 0) |> print()
+
+
+saveRDS(train, "Data/train.rds")
+saveRDS(test,  "Data/test.rds")
+
+
+cat("Train dimensions:", dim(train), "\n")
+cat("Test dimensions:",  dim(test),  "\n")
